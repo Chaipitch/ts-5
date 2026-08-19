@@ -30,7 +30,7 @@
 
 public class GeminiSummaryPOC implements Queueable, Database.AllowsCallouts {
 
-    private static final String API_KEY = 'AQ.Ab8RN6LcH3o-BtxNpKTP3ABiwEf3b9EUavqSeGUSEppnWqRCwQ';
+    private static final String API_KEY = 'AQ.Ab8RN6JpWrhichMcrvVxQxPA2VsazAGZU8hf9tmKl6a1piN-1w';
     private static final String MODEL = 'gemini-3.5-flash-lite';
     private static final String BASE_URL = 'https://generativelanguage.googleapis.com';
     private static final String GENERATE_ENDPOINT = BASE_URL + '/v1beta/models/' + MODEL + ':generateContent?key=' + API_KEY;
