@@ -155,7 +155,7 @@ What this means in practice:
 ## 4. Non-functional
 
 - **NFR-1** Salesforce limits: max 100 callouts and 120 s total callout time per transaction. Batch scope stays small (3–5).
-- **NFR-2** Gemini limits depend on the Google project tier. On the **free tier** we saw 20 calls per day per model on `gemini-3.8-flash` and frequent per-minute 429s on `gemini-3.5-flash-lite`. A year of real meetings needs **billing on**. The backfill is resumable (`AI_Processed__c`) and pauses itself on a 429 (FR-25).
+- **NFR-2** Gemini limits depend on the Google project tier. On the **free tier** we saw 20 calls per day per model on `gemini-3.8-flash`, and on `gemini-3.5-flash-lite` about 15 per minute and ~500 per day (load test, 10–11 Oct). Free-tier prompts may be used by Google, so real customer MOMs need a billed key regardless. A year of real meetings needs **billing on**. The backfill is resumable (`AI_Processed__c`) and pauses itself on a 429 (FR-25).
 - **NFR-3** Apex test coverage ≥ 75 % for new classes, using `HttpCalloutMock`.
 - **NFR-4** Handles Thai and English MOM text.
 
@@ -201,4 +201,5 @@ Event `Type` values in the org: Web Meeting, On-site / Visit, Dinner / Event, Di
 | O1 | **Ordering after a late retry:** a meeting analysed after newer meetings of the same deal is merged last, so Rule C (and newer Rule B text) can take its older view. Fix needs one more Opportunity field (date of the latest meeting merged) so an older meeting only adds facts. Agree to the extra field? | BA / Manager |
 | O2 | Turn on Google billing before the demo; then set `GeminiMODEL` back to a Flash model. | Manager |
 | O3 | Before Production: retrieve the 33 fields + `Event.AI_Processed__c` into the repo, enter the API key, assign the permission set to all reps. | Team |
+| O5 | Lite misfiles the product **Cloudee** as an SI competitor (16 of 100 deals in the load test). Re-check on `gemini-3.8-flash`; if it persists, add "Cloudee is a product, not an SI" to the prompt. | BA / Team |
 | O4 | The sheet's new **Query** section differs from the build: (a) `CreatedDate = LAST_N_MONTHS:12` — that leaves out the current month, and uses the entry date, not the meeting date (build: meeting date, last 365 days); (b) two more Types, *Meeting Partner for Current Opportunity / Prospecting* (not in the Condition section, not in the sandbox; a settings change if wanted); (c) no Subject / length / Opportunity / not-processed filter — keep the Condition section's rules? (d) it reads StartDateTime and Subject — send the meeting date and Subject to Gemini too, so "next Friday" or "20 October" can be placed? | BA |

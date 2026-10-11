@@ -11,7 +11,7 @@ Branch: `feature/ai-deal-intelligence`
 | | |
 |---|---|
 | Build | ✅ Done: filter, Gemini call, merge rules A/B/C, backfill, real-time, retries, two logs. 53 Apex tests pass. |
-| Tested | ✅ End to end with real Gemini calls; stress test of 29 deals / 131 meetings (see [implementation-plan.md](implementation-plan.md) §6). |
+| Tested | ✅ End to end with real Gemini calls; stress test (29 deals / 131 meetings); **load test of 250 deals / 1,006 meetings** — 93.5 % of deals exactly right, all misses one model mistake (Cloudee), nothing lost or double-processed, ~4 meetings a minute on the free tier (see [implementation-plan.md](implementation-plan.md) §6). |
 | Model | `gemini-3.5-flash-lite` for now — the free tier allows only 20 calls a day on `gemini-3.8-flash`. Switch back to Flash once Google billing is on. |
 | Before the demo | Turn on billing for the Google project; switch the model; decide the ordering limitation (§ Known limitations). |
 | Before Production | Retrieve the 33 Opportunity fields and `Event.AI_Processed__c` into this repo (they exist only in the sandbox); enter the API key; assign the permission set to every rep. |

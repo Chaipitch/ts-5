@@ -125,7 +125,7 @@ Change `Program_Constant__mdt.GeminiMODEL` — no code change; both logs record 
 
 > Google notice (Oct 2026): **`gemini-3.7-flash` is deprecated** and redirected to `gemini-3.8-flash` (same pricing). Don't set `GeminiMODEL` to 3.7; for Flash use `gemini-3.8-flash`. The end-to-end test in §6 ran on 3.7 before the change.
 
-## 6. Test results (8 Oct 2026, sandbox)
+## 6. Test results (sandbox `dev5-ts`)
 
 **End to end** (`gemini-3.7-flash`, one realistic English MOM): all 33 fields filled correctly; score 75 with the BA's arithmetic spelled out (50 + 15 budget/timeline + 10 customer homework); risks named the SAP integration, data migration and two competitors.
 
@@ -140,7 +140,22 @@ Change `Program_Constant__mdt.GeminiMODEL` — no code change; both logs record 
 
 Run 2's other 4 deals: 2 had a meeting give up after 3 quick 429 retries (since replaced by the hourly retry, D12); 2 had Gemini put a product (Cloudee) in the SI list — dropped with a warning (model quality). Edge cases: an ~8,000-character note was fine; same-day meetings merged in time order; unknown products stored as "Others", never as invalid values; Thai polite deferral scored 5.
 
-Not yet re-run after the last two changes (deal lock, 429 retry) — their unit tests pass.
+**Load test** (10–11 Oct 2026, `gemini-3.5-flash-lite` free tier, on the final code: deal lock, 429 wait of 2 min / 1 h): 250 deals × 4 meetings + 4 edge-case deals = **1,006 meetings**, sized above Production's ~200 meetings. Data made with the stress-data script in 5 batches of 50 deals.
+
+| | |
+|---|---|
+| Analysed | **990 of 1,006** when measured (11 Oct 08:37 UTC); the last 16 (deals 247–250) wait for the free daily quota and finish by themselves through the hourly retry |
+| Pace | ~**4 meetings a minute** while quota lasts (189 + 298 in the first two hours); ~4 hours of processing spread over 16 hours, the rest waiting for the daily quota |
+| Free-tier ceiling | ~**500 calls a day** on `gemini-3.5-flash-lite` (503 on day 1, 487 after the reset at ~07:00 UTC) |
+| Rate limits | 62 × 429 — 48 per-minute (2-minute retry), 14 used-up daily quota (hourly retry); **no meeting lost** |
+| Integrity | **No meeting analysed twice**; both logs hold exactly 1,052 rows (990 successes + 62 refused calls) |
+| Accuracy | **230 of 246** finished regular deals exactly as expected (93.5 %). **All 16 misses are one model mistake:** Lite files the product "Cloudee" as an SI competitor (16 of the 100 deals that mention it) — dropped with a warning, as designed. Merge order, flags, budgets, scores and the deal lock held up under load. |
+| Edge cases | ~8,000-character note fine; same-day meetings merged in time order (score 15 from the 16:00 "paused" meeting); unknown products → "Others"; Thai polite deferral → score 5 |
+| Tokens | ~2,500 in + ~715 out per meeting → about **$0.005 per meeting** at the 3.8 Flash prices in Google's Oct 2026 notice ($0.75 / $3.75 per million) |
+
+What it means for Production (~200 meetings): on a **billed** key (required anyway — Google may use free-tier data) the backfill takes roughly 15–20 minutes and about **$1**; each new meeting afterwards costs about half a cent. Re-check the Cloudee mistake on `gemini-3.8-flash`; if it persists, add one line to the prompt ("Cloudee is a product, not an SI").
+
+Found while loading the data: the existing flow **"Event - After Save - Update Opp Meeting Count"** fails with *Limit Exceeded* when ~1,000 Events are saved in one transaction (the whole insert rolls back). Our process is unaffected — it ticks 3 meetings at a time — but bulk-loading meetings into Production (data migration) must be done in smaller batches.
 
 ## 7. Open items
 
