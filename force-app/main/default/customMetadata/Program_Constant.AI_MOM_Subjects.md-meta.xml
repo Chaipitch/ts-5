@@ -4,7 +4,7 @@
     <protected>false</protected>
     <values>
         <field>Value__c</field>
-        <value xsi:type="xsd:string">Meeting;On-site / Visit - 1. Initial Meeting / Hearing;On-site / Visit - 2. Detailed Hearing / Requirement Check;On-site / Visit - 3. Proposal / Quote Submission;On-site / Visit - 6. Other</value>
+        <value xsi:type="xsd:string">*</value>
     </values>
     <values>
         <field>boolean__c</field>

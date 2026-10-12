@@ -34,7 +34,7 @@ What they cover:
 
 | Area | Cases |
 |------|-------|
-| Filter | 100 chars → yes, 99 → no, padded 99 → no; Type and Subject must both match; case and spaces ignored; not on an Opportunity → no; already ticked → no; missing config → nothing; **all 8 BA Subjects are read from the deployed config** (catches a value cut at 255) |
+| Filter | 100 chars → yes, 99 → no, padded 99 → no; Type must match; Subject only when a Subject list is set (`*` = any, D14); case and spaces ignored; not on an Opportunity → no; already ticked → no; missing config → nothing; **all 8 BA Subjects are read from the deployed config** (catches a value cut at 255) |
 | Keys | `"1_Competitor_Topic_Mentioned__c"` → `Competitor_Topic_Mentioned__c`; unnumbered keys work too |
 | Rule A | true stays true; false → true when mentioned; `"true"` string counts |
 | Rule B | No Data fills a blank (Stage gets `Cannot Determine`); never replaces real data; real data replaces No Data and older data; picklist matched ignoring case, unknown values dropped with a warning; text cut to 255; multi-picklists accumulate, no duplicates, No Data dropped once a real value exists |
@@ -50,9 +50,9 @@ On **AIDI Test 1 - Filter**, create each Event from test-data.md §1, wait about
 |---|------|---------|-------------|----------|
 | 3.1 | Web Meeting | Web Meeting - 1. Initial Meeting / Hearing | long note | ✅ analysed, deal updated, Event ticked |
 | 3.2 | On-site / Visit | On-site / Visit - 3. Proposal / Quote Submission | long note | ✅ analysed |
-| 3.3 | Web Meeting | Web Meeting - 3. Proposal / Quote Submission | long note | ✅ analysed (this Subject was once cut from the config) |
+| 3.3 | Web Meeting | Web Meeting - 3. Proposal / Quote Submission | long note | ✅ analysed |
 | 3.4 | Dinner / Event | Dinner / Event - 1. Initial Meeting / Hearing | long note | ❌ no job, no log |
-| 3.5 | Web Meeting | Catch-up | long note | ❌ nothing |
+| 3.5 | Web Meeting | Catch-up | long note | ✅ analysed — any Subject counts (D14) |
 | 3.6 | Web Meeting | Web Meeting - 1. Initial Meeting / Hearing | `called, no answer` | ❌ nothing |
 | 3.7 | Web Meeting | Web Meeting - 1. Initial Meeting / Hearing | long note, Related To an **Account** | ❌ nothing |
 | 3.8 | Edit 3.6 → paste the long note | | | ❌ nothing (only new meetings) |

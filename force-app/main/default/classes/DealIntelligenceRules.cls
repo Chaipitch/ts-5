@@ -2,9 +2,11 @@
  * The BA's rules for AI Deal Intelligence, in one place:
  *
  * 1. Filter — which Events are a Minutes of Meeting worth sending to Gemini.
- *    All must hold: a MOM Type, a MOM Subject, a Description of at least the minimum
- *    length, not yet processed, related to an Opportunity. Types, Subjects and the
- *    length come from Program_Constant__mdt so the BA can change them without a deploy.
+ *    All must hold: a MOM Type, a Description of at least the minimum length, not yet
+ *    processed, related to an Opportunity — and a MOM Subject, unless the Subject list
+ *    is "*" (any subject; the setting today, as the manager's memo asks for Type and
+ *    length only). Types, Subjects and the length come from Program_Constant__mdt so
+ *    the BA can change them without a deploy.
  *
  * 2. Merge — how one Gemini result lands on the Opportunity without losing what
  *    earlier MOMs found. Gemini only ever sees the current MOM, so a plain overwrite
@@ -27,6 +29,8 @@ public with sharing class DealIntelligenceRules {
     @TestVisible private static final String TYPES_KEY      = 'AI_MOM_Types';
     @TestVisible private static final String SUBJECTS_KEY   = 'AI_MOM_Subjects';
     @TestVisible private static final String MIN_LENGTH_KEY = 'AI_MOM_Min_Length';
+    /** As the whole Subject list: any Subject will do. */
+    @TestVisible private static final String ANY_SUBJECT = '*';
 
     @TestVisible private static Set<String> types;
     @TestVisible private static Set<String> subjects;
@@ -54,7 +58,7 @@ public with sharing class DealIntelligenceRules {
             && e.WhatId != null
             && e.WhatId.getSObjectType() == Opportunity.SObjectType
             && types.contains(normalise(e.Type))
-            && subjects.contains(normalise(e.Subject))
+            && (anySubject() || subjects.contains(normalise(e.Subject)))
             && String.isNotBlank(e.Description)
             && e.Description.trim().length() >= minLength;
     }
@@ -67,6 +71,12 @@ public with sharing class DealIntelligenceRules {
     /** The configured Subjects, as written in the config — for the backfill's SOQL filter. */
     public static List<String> momSubjects() {
         return splitList(valuesStartingWith(SUBJECTS_KEY), false);
+    }
+
+    /** True when the Subject list is "*": the Subject is not checked at all. */
+    public static Boolean anySubject() {
+        loadFilterConfig();
+        return subjects.contains(ANY_SUBJECT);
     }
 
     private static void loadFilterConfig() {

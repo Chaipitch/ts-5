@@ -32,7 +32,7 @@ Branch: `feature/ai-deal-intelligence`
 ## How it works
 
 1. A rep logs a meeting as an **Event** on an Opportunity.
-2. If it's a **real MOM** — Type **and** Subject in the BA's lists, at least 100 characters, not yet processed — it goes to Gemini with the BA's prompt. Dinners, short notes and Events on other objects are skipped.
+2. If it's a **real MOM** — a meeting Type from the BA's list, at least 100 characters, not yet processed (any Subject, D14) — it goes to Gemini with the BA's prompt. Dinners, short notes and Events on other objects are skipped.
 3. Gemini returns **one JSON** with all 33 items.
 4. Salesforce **merges** it into the Opportunity, never a plain overwrite:
    - **Checkboxes (17):** once true, stay true.
@@ -62,7 +62,7 @@ Field list, filter values, rules and prompt come from the BA sheet [Gemini Opp](
 | API key | Setup → Named Credentials → External Credentials → **Gemini AI Studio** → principal `Gemini_AI_Studio_Principal` → parameter `ApiKey`. Per org, never in git. The Named Credential `Gemini_AI_Studio` must keep *Allow Formulas in HTTP Header* on. |
 | Who may call Gemini | Permission set **AI Deal Intelligence** — every rep who logs meetings, plus whoever runs the backfill |
 | Prompt | Static resource `DealIntelligencePrompt` (the BA prompt, Sections 1–4) |
-| MOM Types, Subjects, minimum length | `Program_Constant__mdt` → `AI_MOM_Types`, `AI_MOM_Subjects` + `AI_MOM_Subjects_2`, `AI_MOM_Min_Length`. Each value holds **255 characters at most** — add `AI_MOM_Subjects_3` rather than lengthening one. |
+| MOM Types, Subjects, minimum length | `Program_Constant__mdt` → `AI_MOM_Types`, `AI_MOM_Subjects`, `AI_MOM_Min_Length`. `AI_MOM_Subjects` = `*` means **any Subject** (today's setting, D14); list Subjects there (semicolon-separated) to check them again. Each value holds **255 characters at most** — add `AI_MOM_Subjects_2` etc. rather than lengthening one. |
 
 ## Logs
 

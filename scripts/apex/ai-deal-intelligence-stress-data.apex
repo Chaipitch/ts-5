@@ -104,7 +104,8 @@ for (Integer i = 0; i < DEAL_COUNT; i++) {
         moms.add(mom(o.Id, 'Web Meeting', 'Web Meeting - 1. Initial Meeting / Hearing', 400, 10,
             'OLDER THAN ONE YEAR. First intro call with ' + company + '; they only asked for brochures and a price range for a CRM.'));
     } else {
-        moms.add(mom(o.Id, 'Web Meeting', 'Quick catch-up', 50, 16,
+        // Subject isn't checked any more (D14), so the skip comes from the Type.
+        moms.add(mom(o.Id, 'Discovery Meeting', 'Quick catch-up', 50, 16,
             'Quick catch-up call with ' + company + ' about the timeline; nothing new was decided and no follow-up was agreed by either side.'));
     }
 }

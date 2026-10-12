@@ -234,22 +234,36 @@ public without sharing class DealIntelligenceJob
 
     public Iterable<SObject> start(Database.BatchableContext context) {
         List<String> types = DealIntelligenceRules.momTypes();
-        List<String> subjects = DealIntelligenceRules.momSubjects();
+        // A Subject list of "*" means any Subject. Otherwise this is only a first cut:
+        // the service re-checks every meeting with the full filter.
+        List<String> subjects = DealIntelligenceRules.anySubject() ? null : DealIntelligenceRules.momSubjects();
         // Sorted by deal, then meeting date, so each Opportunity sees its meetings
         // oldest first — also across chunks, which run one after another. The
         // Description length can't be filtered in SOQL; the service checks it.
         List<Event> pending = [
-            SELECT Id, WhatId
+            SELECT Id, WhatId, Subject
             FROM Event
             WHERE ActivityDate = LAST_N_DAYS:365
               AND What.Type = 'Opportunity'
               AND Type IN :types
-              AND Subject IN :subjects
               AND AI_Processed__c = false
             WITH SYSTEM_MODE
             ORDER BY WhatId, StartDateTime, CreatedDate
             LIMIT 50000
         ];
+        if (subjects != null) {
+            Set<String> wanted = new Set<String>();
+            for (String s : subjects) {
+                wanted.add(s.trim().toLowerCase());
+            }
+            List<Event> matching = new List<Event>();
+            for (Event e : pending) {
+                if (e.Subject != null && wanted.contains(e.Subject.trim().toLowerCase())) {
+                    matching.add(e);
+                }
+            }
+            pending = matching;
+        }
 
         // Deals that were held back by a rate limit go first, as whole deals, so their
         // meetings still merge oldest first.

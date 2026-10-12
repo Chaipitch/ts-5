@@ -113,7 +113,7 @@ Numbering follows the Gemini prompt (1–33). The sheet's *Obj&Fields* tab numbe
 An Event is analysed only if **all** of these are true:
 
 - **FR-10 Type** is `Meeting`, `On-site / Visit`, `Web Meeting`, `Meeting Customer for Prospecting` or `Meeting Customer for Current Opportunity`.
-- **FR-11 AND Subject** is one of: `Meeting`, `On-site / Visit - 1. Initial Meeting / Hearing`, `On-site / Visit - 2. Detailed Hearing / Requirement Check`, `On-site / Visit - 3. Proposal / Quote Submission`, `On-site / Visit - 6. Other`, `Web Meeting - 1. Initial Meeting / Hearing`, `Web Meeting - 2. Detailed Hearing / Requirement Check`, `Web Meeting - 3. Proposal / Quote Submission`. *(Decision (BA): both Type **and** Subject must match.)*
+- **FR-11 Subject — not checked** *(D14: Type + length only, as in the manager's memo and the BA's Query)*. The setting `AI_MOM_Subjects` = `*`. Earlier (D3) the Subject had to be one of the BA's 8 (`Meeting`, `On-site / Visit - 1/2/3/6 …`, `Web Meeting - 1/2/3 …`); that list can be put back in the setting if wanted.
 - **FR-12 Description** has **at least 100 characters** (after trimming spaces).
 - **FR-13** `AI_Processed__c = false`.
 - **FR-14** `WhatId` is an Opportunity. (Not written in the sheet, but there is nothing to update otherwise. In the org, Events are also related to `ApplicationItem__c`.)
@@ -182,7 +182,7 @@ Event `Type` values in the org: Web Meeting, On-site / Visit, Dinner / Event, Di
 |---|-------|----------|----|
 | D1 | `Proposed_Products_c__c` | Rename to `Proposed_Products__c` | BA |
 | D2 | Prompt Section 5 (Markdown table) | Drop it from the API prompt | BA |
-| D3 | Filter | Type **and** Subject must both match | BA |
+| D3 | Filter | Type **and** Subject must both match — *replaced by D14* | BA |
 | D4 | Multi-picklists | Accumulate (`SAP;Odoo`) | BA |
 | D5 | Gemini endpoint | **Google AI Studio** for now (API key). Vertex AI maybe later. | Manager |
 | D6 | MOM source | Events under the Opportunity | Manager |
@@ -192,6 +192,7 @@ Event `Type` values in the org: Web Meeting, On-site / Visit, Dinner / Event, Di
 | D10 | Gemini Opty Log fields | Add Event Id, Model, Error Message, Input Token, Output Token | BA / team |
 | D11 | Model while testing | `gemini-3.5-flash-lite` (higher free quota); back to Flash for the demo, once billing is on | Team |
 | D12 | 429 handling | Retry after an hour; held-back deals first, then the rest still pending | Team |
+| D14 | Filter | **Type + length only; Subject not checked** (`AI_MOM_Subjects` = `*`). The manager's memo never asked for a Subject check, the BA's Query doesn't use one, and it silently skipped real meetings whose rep typed their own Subject (e.g. "Quick catch-up") or used "Web Meeting - 5 …". | Team (12 Oct 2026) |
 | D13 | 429 wait | Short wait when Gemini asks for one (per-minute limit: 2 min), the hour only for a long or unstated wait — an hour per ~15 meetings made a 1,000-meeting backfill take days on the free tier | Team |
 
 ## 8. Open items

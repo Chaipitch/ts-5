@@ -29,7 +29,7 @@ Customer reviewed our CRM demo and asked how lead assignment would work for thei
 | 1.1 | Web Meeting | Web Meeting - 1. Initial Meeting / Hearing | long note | ✅ analysed within ~1 min |
 | 1.2 | On-site / Visit | On-site / Visit - 3. Proposal / Quote Submission | long note | ✅ analysed |
 | 1.3 | Dinner / Event | Dinner / Event - 1. Initial Meeting / Hearing | long note | ❌ nothing |
-| 1.4 | Web Meeting | Catch-up | long note | ❌ nothing |
+| 1.4 | Web Meeting | Catch-up | long note | ✅ analysed — any Subject counts (D14) |
 | 1.5 | Web Meeting | Web Meeting - 1. Initial Meeting / Hearing | `called, no answer` | ❌ nothing |
 | 1.6 | Web Meeting | Web Meeting - 1. Initial Meeting / Hearing | long note, **Related To any Account** | ❌ nothing |
 | 1.7 | Edit 1.5 → paste the long note | | | ❌ nothing (only new meetings) |
@@ -90,7 +90,7 @@ Then check:
 
 ## 4. Stress test records
 
-Created by `scripts/apex/ai-deal-intelligence-stress-data.apex`. Each deal's **Description** states what the backfill should leave on it (e.g. `EXPECT competitors=SAP;Odoo;kintone;Zoho | budgetFrom=meeting 1 | scoreFrom=meeting 4`); `…-stress-check.apex` compares. Every regular deal has 4 meetings (≈300, 200, 100, 10 days ago) plus 1 the filter must skip (short note, dinner, older than a year, or a custom subject). Edge cases: a ~8,000-character note, three meetings on one day, products not in the picklists, a Thai polite deferral.
+Created by `scripts/apex/ai-deal-intelligence-stress-data.apex`. Each deal's **Description** states what the backfill should leave on it (e.g. `EXPECT competitors=SAP;Odoo;kintone;Zoho | budgetFrom=meeting 1 | scoreFrom=meeting 4`); `…-stress-check.apex` compares. Every regular deal has 4 meetings (≈300, 200, 100, 10 days ago) plus 1 the filter must skip (short note, dinner, older than a year, or a Type not on the list — before D14 this last one was a custom Subject, which now counts). Edge cases: a ~8,000-character note, three meetings on one day, products not in the picklists, a Thai polite deferral.
 
 ## 5. Reset and clean up
 
