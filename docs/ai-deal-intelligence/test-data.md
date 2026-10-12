@@ -2,7 +2,7 @@
 
 Created 8 Oct 2026. Use with [testing-steps.md](testing-steps.md).
 
-**State (8 Oct 2026, after the stress run):** the meetings on Test 3 / Test 4 and the BA's records have been analysed. To run them again, use the reset script (§5) first — it clears the AI fields, deletes their log rows, deletes meetings you logged by hand on Test 1 / 2, and unticks the rest so they wait for the backfill.
+**State (12 Oct 2026):** all test data was reset (277 deals: AIDI Test, AIDI Stress — now 250 load-test deals + 4 edge cases — Gemini MOM, Gemini Automate; 1,093 meetings waiting under the Type-and-length filter, D14). One backfill is scheduled for **13 Oct 07:04 UTC**, just after Google's free daily quota resets, and runs over about two days (~500 meetings a day on the free tier). Read-only reports run as scheduled tasks on **13 Oct and 14 Oct, 09:30 UTC** (16:30 Bangkok). Don't run the reset script or deploy `DealIntelligenceJob` until it has finished. To run a round again afterwards, use the reset script (§5) first — it clears the AI fields, deletes their log rows, deletes meetings you logged by hand on Test 1 / 2, and unticks the rest so they wait for the backfill.
 
 | Opportunity | Id | Use for |
 |---|---|---|
