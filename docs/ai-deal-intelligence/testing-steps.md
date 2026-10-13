@@ -1,6 +1,6 @@
 # AI Deal Intelligence — Testing Steps
 
-Run in the sandbox `dev5-ts`. Tick each box. For a failure, note the Opportunity, the Event Id and the log rows (AI Analysis Log and Gemini Opty Log).
+Run in the sandbox `dev5-ts`. Tick each box. For a failure, note the Opportunity, the Event Id and the Gemini Opty Log rows.
 
 **Test data:** the records and ready-to-paste meeting notes are in [test-data.md](test-data.md). To start a round again, run the reset script — first as it is (`DRY_RUN = true`, it only prints), then with `DRY_RUN = false`:
 
@@ -39,7 +39,7 @@ What they cover:
 | Rule A | true stays true; false → true when mentioned; `"true"` string counts |
 | Rule B | No Data fills a blank (Stage gets `Cannot Determine`); never replaces real data; real data replaces No Data and older data; picklist matched ignoring case, unknown values dropped with a warning; text cut to 255; multi-picklists accumulate, no duplicates, No Data dropped once a real value exists |
 | Rule C | latest score / reason / risks win; score bounded 1–100 and rounded; non-numeric or missing score keeps the old one; empty reason keeps the old one |
-| Service | one call per meeting in JSON mode with the BA prompt (no Section 5); success saves, ticks, writes both logs (Event Id, model, tokens); later meetings merge onto earlier ones; HTTP 500 → nothing changed, unticked; not JSON → Parse Error; short note → no call; **after a 503 the rest of the run is held back**; 429 reported as rate-limited |
+| Service | one call per meeting in JSON mode with the BA prompt (no Section 5); success saves, ticks, writes the log (Event Id, model, tokens, changes); later meetings merge onto earlier ones; HTTP 500 → nothing changed, unticked; not JSON → Parse Error; short note → no call; **after a 503 the rest of the run is held back**; 429 reported as rate-limited |
 | Job | saving a MOM starts the background job; a short note doesn't; 3 per job; backfill takes the past year only; **503 → queued again in 2 min, gives up after 3 calls; 429 → one rate-limit retry scheduled — 2 min for a short wait Gemini asks for, 1 h for a long or unstated one (only one waits; a sooner one replaces a later); held-back deals go first; backfill stops at the first 429; the retry runs the backfill**; other errors not retried |
 
 ## 3. Filter (instant process, manual)
@@ -81,8 +81,8 @@ On **AIDI Test 2 - Merge Rules**, log meetings A, B, C from test-data.md §2 one
 
 For any analysed meeting:
 
-- [ ] 5.1 **AI Analysis Log**: Status Success (or Partial, with Details saying why), model, input / output tokens, Changes listing each field, Response = one JSON with 33 keys and no Markdown table.
-- [ ] 5.2 **Gemini Opty Log**: one row per call, with Event Id, Model, Status Success / Fail, Input / Output / Total tokens, JSON Log; Error Message filled on failures.
+- [ ] 5.1 **Gemini Opty Log**, one row per call: Status Success (or Partial, with Error Message saying why), Event Id, Model, Input / Output / Total tokens, Changes listing each field, JSON Log = one JSON with 33 keys and no Markdown table.
+- [ ] 5.2 On a failure: Status Fail / Parse Error / Save Failed, Error Message says why, JSON Log holds Google's error (or the answer that wasn't JSON).
 - [ ] 5.3 A retried meeting has one row per attempt; the last one is the outcome.
 
 ## 6. Batch (backfill)
@@ -100,7 +100,7 @@ For any analysed meeting:
 
 ## 7. Errors, retries and safety
 
-- [ ] 7.1 Set `GeminiMODEL` to a made-up name, log a meeting → both logs `Failed` / `Fail`, deal unchanged, Event unticked. Set it back.
+- [ ] 7.1 Set `GeminiMODEL` to a made-up name, log a meeting → the log says `Fail`, deal unchanged, Event unticked. Set it back.
 - [ ] 7.2 **503 (busy):** when it happens, the log says `HTTP 503`; about 2 minutes later a new `DealIntelligenceJob` appears in Apex Jobs and the meeting is analysed; after 3 calls in all it stops (next backfill picks it up).
 - [ ] 7.3 **429 (rate limit):** the log says `HTTP 429`; no more calls in that run; **Setup → Scheduled Jobs** shows one *AI Deal Intelligence - retry after Gemini rate limit* (never two): about 2 minutes ahead for a per-minute limit (the log says "Gemini asks to wait N s" with a short N), about an hour ahead for a used-up daily quota. When it runs, the held-back deals are analysed first, then the rest; if Gemini still refuses, a new one is scheduled the same way.
 - [ ] 7.4 A deal failing a validation rule doesn't stop other deals in the same chunk.

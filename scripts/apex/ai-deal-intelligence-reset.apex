@@ -54,10 +54,8 @@ update ticked;
 // 4. Their log rows.
 Integer logs = 0;
 if (DELETE_LOGS) {
-    List<AI_Analysis_Log__c> analysisLogs = [SELECT Id FROM AI_Analysis_Log__c WHERE Opportunity__c IN :oppIds];
     List<Gemini_Opty_Log__c> optyLogs = [SELECT Id FROM Gemini_Opty_Log__c WHERE Opportunity__c IN :oppIds];
-    logs = analysisLogs.size() + optyLogs.size();
-    delete analysisLogs;
+    logs = optyLogs.size();
     delete optyLogs;
 }
 

@@ -168,10 +168,10 @@ private class DealIntelligenceServiceTest {
         );
     }
 
-    private static List<AI_Analysis_Log__c> logsOf(String oppName) {
+    private static List<Gemini_Opty_Log__c> logsOf(String oppName) {
         return [
-            SELECT Status__c, Model__c, Input_Tokens__c, Output_Tokens__c, Response__c, Changes__c, Details__c, Event_Id__c
-            FROM AI_Analysis_Log__c
+            SELECT Status__c, Model__c, Input_Token__c, Output_Token__c, Token_Used__c, JSON_Log__c, Changes__c, Error_Message__c, Event_Id__c
+            FROM Gemini_Opty_Log__c
             WHERE Opportunity__r.Name = :oppName
             WITH SYSTEM_MODE
         ];
@@ -212,14 +212,14 @@ private class DealIntelligenceServiceTest {
 
         System.assertEquals(true, [SELECT AI_Processed__c FROM Event WHERE Id = :ids[0] WITH SYSTEM_MODE].AI_Processed__c);
 
-        AI_Analysis_Log__c log = logsOf('AIDI Single')[0];
+        Gemini_Opty_Log__c log = logsOf('AIDI Single')[0];
         System.assert(log.Status__c == 'Success' || log.Status__c == 'Partial', log.Status__c);
         System.assertEquals(ids[0], log.Event_Id__c);
-        System.assertEquals(2500, log.Input_Tokens__c);
-        System.assertEquals(400, log.Output_Tokens__c);
+        System.assertEquals(2500, log.Input_Token__c);
+        System.assertEquals(400, log.Output_Token__c);
         System.assert(String.isNotBlank(log.Model__c));
         System.assert(log.Changes__c.contains('Explicit_Initial_Budget__c = Implementation cost 3M THB'), log.Changes__c);
-        System.assert(log.Response__c.contains('Implementation cost 3M THB'));
+        System.assert(log.JSON_Log__c.contains('Implementation cost 3M THB'));
 
         System.assertEquals(1, summary.analysed);
         System.assertEquals(0, summary.failed);
@@ -310,10 +310,10 @@ private class DealIntelligenceServiceTest {
         System.assertEquals(0, [SELECT COUNT() FROM Event WHERE What.Name = 'AIDI Http Error' AND AI_Processed__c = true WITH SYSTEM_MODE],
             'left unticked so the next run tries again');
 
-        AI_Analysis_Log__c log = logsOf('AIDI Http Error')[0];
-        System.assertEquals('Failed', log.Status__c);
-        System.assert(log.Details__c.contains('HTTP 500'), log.Details__c);
-        System.assert(log.Response__c.contains('backend error'), log.Response__c);
+        Gemini_Opty_Log__c log = logsOf('AIDI Http Error')[0];
+        System.assertEquals('Fail', log.Status__c);
+        System.assert(log.Error_Message__c.contains('HTTP 500'), log.Error_Message__c);
+        System.assert(log.JSON_Log__c.contains('backend error'), log.JSON_Log__c);
         System.assertEquals(1, summary.failed);
 
         Gemini_Opty_Log__c optyLog = optyLogOf('AIDI Http Error');
@@ -332,9 +332,9 @@ private class DealIntelligenceServiceTest {
         DealIntelligenceService.analyse(eventsOf('AIDI Not Json'));
         Test.stopTest();
 
-        AI_Analysis_Log__c log = logsOf('AIDI Not Json')[0];
+        Gemini_Opty_Log__c log = logsOf('AIDI Not Json')[0];
         System.assertEquals('Parse Error', log.Status__c);
-        System.assert(log.Response__c.contains('Here is the analysis'), log.Response__c);
+        System.assert(log.JSON_Log__c.contains('Here is the analysis'), log.JSON_Log__c);
         System.assertEquals(null, opp('AIDI Not Json').Customer_Seriousness_Score__c);
         System.assertEquals(0, [SELECT COUNT() FROM Event WHERE What.Name = 'AIDI Not Json' AND AI_Processed__c = true WITH SYSTEM_MODE]);
     }
@@ -384,7 +384,7 @@ private class DealIntelligenceServiceTest {
         Test.stopTest();
 
         System.assert(summary.rateLimited);
-        System.assert(logsOf('AIDI Quota')[0].Details__c.contains('wait 49995 s'), logsOf('AIDI Quota')[0].Details__c);
+        System.assert(logsOf('AIDI Quota')[0].Error_Message__c.contains('wait 49995 s'), logsOf('AIDI Quota')[0].Error_Message__c);
     }
 
     @isTest

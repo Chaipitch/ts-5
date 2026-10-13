@@ -20,6 +20,21 @@
                 <default>false</default>
                 <label>Fail</label>
             </value>
+            <value>
+                <fullName>Partial</fullName>
+                <default>false</default>
+                <label>Partial</label>
+            </value>
+            <value>
+                <fullName>Parse Error</fullName>
+                <default>false</default>
+                <label>Parse Error</label>
+            </value>
+            <value>
+                <fullName>Save Failed</fullName>
+                <default>false</default>
+                <label>Save Failed</label>
+            </value>
         </valueSetDefinition>
     </valueSet>
 </CustomField>

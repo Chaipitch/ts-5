@@ -18,17 +18,17 @@ System.debug('CHECK deals: ' + opps.size() + ' | meetings ticked: ' + ticked + '
     + ' (one skipped meeting per regular deal is expected to stay unticked)');
 
 for (AggregateResult r : [
-    SELECT Status__c status, COUNT(Id) n, SUM(Input_Tokens__c) tin, SUM(Output_Tokens__c) tout
-    FROM AI_Analysis_Log__c WHERE Opportunity__c IN :oppIds GROUP BY Status__c
+    SELECT Status__c status, COUNT(Id) n, SUM(Input_Token__c) tin, SUM(Output_Token__c) tout
+    FROM Gemini_Opty_Log__c WHERE Opportunity__c IN :oppIds GROUP BY Status__c
 ]) {
     System.debug('CHECK log ' + r.get('status') + ': ' + r.get('n') + ' rows, tokens in ' + r.get('tin') + ' / out ' + r.get('tout'));
 }
 // Long text can't be grouped in SOQL, so the failure reasons are counted here.
 Map<String, Integer> reasons = new Map<String, Integer>();
-for (AI_Analysis_Log__c log : [
-    SELECT Details__c FROM AI_Analysis_Log__c WHERE Opportunity__c IN :oppIds AND Status__c = 'Failed'
+for (Gemini_Opty_Log__c log : [
+    SELECT Error_Message__c FROM Gemini_Opty_Log__c WHERE Opportunity__c IN :oppIds AND Status__c = 'Fail'
 ]) {
-    String reason = String.valueOf(log.Details__c).substringBefore(' (').left(120);
+    String reason = String.valueOf(log.Error_Message__c).substringBefore(' (').left(120);
     reasons.put(reason, reasons.containsKey(reason) ? reasons.get(reason) + 1 : 1);
 }
 for (String reason : reasons.keySet()) {

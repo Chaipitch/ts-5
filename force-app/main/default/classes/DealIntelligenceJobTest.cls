@@ -172,7 +172,7 @@ private class DealIntelligenceJobTest {
 
         System.assertEquals(2, ticked());
         System.assertEquals(60, theOpp().Customer_Seriousness_Score__c);
-        System.assertEquals(2, [SELECT COUNT() FROM AI_Analysis_Log__c WHERE Opportunity__r.Name = 'AIDI Job' WITH SYSTEM_MODE]);
+        System.assertEquals(2, [SELECT COUNT() FROM Gemini_Opty_Log__c WHERE Opportunity__r.Name = 'AIDI Job' WITH SYSTEM_MODE]);
     }
 
     // ---- Retry when Gemini is busy
@@ -193,9 +193,9 @@ private class DealIntelligenceJobTest {
         System.assertEquals(DealIntelligenceJob.RETRY_DELAY_MINUTES, DealIntelligenceJob.queuedDelayInTest);
 
         System.assertEquals(false, [SELECT AI_Processed__c FROM Event WHERE Id = :ids[0] WITH SYSTEM_MODE].AI_Processed__c);
-        AI_Analysis_Log__c log = [SELECT Status__c, Details__c FROM AI_Analysis_Log__c WHERE Opportunity__r.Name = 'AIDI Retry' WITH SYSTEM_MODE];
-        System.assertEquals('Failed', log.Status__c);
-        System.assert(log.Details__c.contains('HTTP 503'), log.Details__c);
+        Gemini_Opty_Log__c log = [SELECT Status__c, Error_Message__c FROM Gemini_Opty_Log__c WHERE Opportunity__r.Name = 'AIDI Retry' WITH SYSTEM_MODE];
+        System.assertEquals('Fail', log.Status__c);
+        System.assert(log.Error_Message__c.contains('HTTP 503'), log.Error_Message__c);
     }
 
     @isTest
@@ -274,10 +274,10 @@ private class DealIntelligenceJobTest {
         DealIntelligenceJob.realTimeOn = false;
         insert new List<Event>{ mom(LONG_TEXT, 20), mom(LONG_TEXT, 10) };
         Id retryId = retryMeeting()[0];
-        insert new AI_Analysis_Log__c(
+        insert new Gemini_Opty_Log__c(
             Event_Id__c = retryId,
-            Status__c = 'Failed',
-            Details__c = 'HTTP 429 Too Many Requests (Gemini asks to wait 14 s)'
+            Status__c = 'Fail',
+            Error_Message__c = 'HTTP 429 Too Many Requests (Gemini asks to wait 14 s)'
         );
 
         List<SObject> order = (List<SObject>) new DealIntelligenceJob().start(null);
@@ -297,7 +297,7 @@ private class DealIntelligenceJobTest {
         DealIntelligenceJob.runBackfill();
         Test.stopTest();
 
-        System.assertEquals(1, [SELECT COUNT() FROM AI_Analysis_Log__c WITH SYSTEM_MODE], 'one refused call, the rest held back');
+        System.assertEquals(1, [SELECT COUNT() FROM Gemini_Opty_Log__c WITH SYSTEM_MODE], 'one refused call, the rest held back');
         System.assertEquals(0, [SELECT COUNT() FROM Event WHERE AI_Processed__c = true WITH SYSTEM_MODE]);
     }
 

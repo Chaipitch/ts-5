@@ -6,8 +6,8 @@
  * The answers are then merged oldest meeting first, so the insight fields end on the
  * latest one. A meeting is ticked AI_Processed__c only once its Opportunity has
  * saved; anything that failed stays unticked and is picked up again on the next run.
- * Every meeting sent to Gemini leaves one AI_Analysis_Log__c row (full detail) and one
- * Gemini_Opty_Log__c row (the team's summary log: JSON, Success/Fail, tokens).
+ * Every call to Gemini leaves one Gemini_Opty_Log__c row: status, what changed on the
+ * deal, errors and warnings, Gemini's JSON (or Google's error), model and tokens.
  *
  * Without sharing and in system mode: the rep who logs the meeting may not own the
  * deal or see the AI fields and the log, and they must still be written. (From API
@@ -33,7 +33,7 @@ public without sharing class DealIntelligenceService {
 
     @TestVisible private static final String SUCCESS     = 'Success';
     @TestVisible private static final String PARTIAL     = 'Partial';
-    @TestVisible private static final String FAILED      = 'Failed';
+    public static final String FAILED                    = 'Fail';   // the log's own value, from before this feature
     @TestVisible private static final String PARSE_ERROR = 'Parse Error';
     @TestVisible private static final String SAVE_FAILED = 'Save Failed';
 
@@ -330,11 +330,9 @@ public without sharing class DealIntelligenceService {
             }
         }
 
-        List<AI_Analysis_Log__c> logs = new List<AI_Analysis_Log__c>();
-        List<Gemini_Opty_Log__c> optyLogs = new List<Gemini_Opty_Log__c>();
+        List<Gemini_Opty_Log__c> logs = new List<Gemini_Opty_Log__c>();
         for (Call c : calls) {
             logs.add(toLog(c, model));
-            optyLogs.add(toOptyLog(c, model));
             if (c.status == SUCCESS || c.status == PARTIAL) {
                 summary.analysed++;
             } else {
@@ -344,41 +342,25 @@ public without sharing class DealIntelligenceService {
             summary.outputTokens += c.outputTokens == null ? 0 : c.outputTokens;
         }
         Database.insert(logs, false, AccessLevel.SYSTEM_MODE);
-        Database.insert(optyLogs, false, AccessLevel.SYSTEM_MODE);
     }
 
-    private static AI_Analysis_Log__c toLog(Call c, String model) {
+    private static Gemini_Opty_Log__c toLog(Call c, String model) {
         List<String> changes = new List<String>();
         if (c.merged != null && (c.status == SUCCESS || c.status == PARTIAL)) {
             for (String field : c.merged.changes.keySet()) {
                 changes.add(field + ' = ' + c.merged.changes.get(field));
             }
         }
-        return new AI_Analysis_Log__c(
-            Opportunity__c = c.mom.WhatId,
-            Event_Id__c = c.mom.Id,
-            Model__c = model == null ? null : model.left(80),
-            Status__c = c.status,
-            Input_Tokens__c = c.inputTokens,
-            Output_Tokens__c = c.outputTokens,
-            Response__c = c.response == null ? null : c.response.left(131072),
-            Changes__c = String.join(changes, '\n').left(32768),
-            Details__c = String.join(c.details, '\n').left(32768)
-        );
-    }
-
-    /** Gemini_Opty_Log__c only knows Success and Fail; Partial still saved, so it's a Success. */
-    private static Gemini_Opty_Log__c toOptyLog(Call c, String model) {
-        Boolean saved = c.status == SUCCESS || c.status == PARTIAL;
         Integer tokens = (c.inputTokens == null ? 0 : c.inputTokens) + (c.outputTokens == null ? 0 : c.outputTokens);
         return new Gemini_Opty_Log__c(
             Opportunity__c = c.mom.WhatId,
             Event_Id__c = c.mom.Id,
             Model__c = model == null ? null : model.left(80),
-            Status__c = saved ? 'Success' : 'Fail',
-            Token_Used__c = tokens,
+            Status__c = c.status,
             Input_Token__c = c.inputTokens,
             Output_Token__c = c.outputTokens,
+            Token_Used__c = tokens,
+            Changes__c = changes.isEmpty() ? null : String.join(changes, '\n').left(32768),
             Error_Message__c = c.details.isEmpty() ? null : String.join(c.details, '\n').left(32768),
             JSON_Log__c = c.response == null ? String.join(c.details, '\n').left(131072) : c.response.left(131072)
         );

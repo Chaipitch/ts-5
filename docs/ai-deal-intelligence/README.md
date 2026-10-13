@@ -10,7 +10,7 @@ Branch: `feature/ai-deal-intelligence`
 
 | | |
 |---|---|
-| Build | ✅ Done: filter, Gemini call, merge rules A/B/C, backfill, real-time, retries, two logs. 53 Apex tests pass. |
+| Build | ✅ Done: filter, Gemini call, merge rules A/B/C, backfill, real-time, retries, one log (Gemini Opty Log). 59 Apex tests pass. |
 | Tested | ✅ End to end with real Gemini calls; stress test (29 deals / 131 meetings); **load test of 250 deals / 1,006 meetings** — 93.5 % of deals exactly right, all misses one model mistake (Cloudee), nothing lost or double-processed, ~4 meetings a minute on the free tier (see [implementation-plan.md](implementation-plan.md) §6). |
 | Model | `gemini-3.5-flash-lite` for now — the free tier allows only 20 calls a day on `gemini-3.8-flash`. Switch back to Flash once Google billing is on. |
 | Before the demo | Turn on billing for the Google project; switch the model; decide the ordering limitation (§ Known limitations). |
@@ -66,10 +66,18 @@ Field list, filter values, rules and prompt come from the BA sheet [Gemini Opp](
 
 ## Logs
 
-Every call to Gemini writes one row to each (so a meeting that was retried has several rows — the last one is the outcome):
+Every call to Gemini writes one row to **Gemini Opty Log** (`Gemini_Opty_Log__c`, the team's object) — so a meeting that was retried has several rows; the last one is the outcome:
 
-- **AI Analysis Log** (`AI_Analysis_Log__c`) — full detail: status (Success / Partial / Failed / Parse Error / Save Failed), the fields it changed, warnings, the raw answer.
-- **Gemini Opty Log** (`Gemini_Opty_Log__c`, the team's log) — Success / Fail, Event Id, model, tokens (in, out, total), error message, the JSON.
+| Field | What it holds |
+|---|---|
+| Status | **Success**; **Partial** (saved, some values skipped or cut); **Fail** (call refused or failed — e.g. HTTP 429/503/500, timeout); **Parse Error** (answer wasn't JSON); **Save Failed** (deal wouldn't save) |
+| Changes | Each Opportunity field this meeting changed, `field = new value` |
+| Error Message | Errors and warnings (e.g. `HTTP 429 … (Gemini asks to wait 17 s)`, `"Cloudee" is not a picklist value, dropped`) |
+| JSON Log | Gemini's JSON answer, or Google's error |
+| Opportunity, Event Id, Model | Which deal, which meeting, which model |
+| Input / Output Token, Token Used | Tokens per call |
+
+(Until 13 Oct 2026 there was also an `AI_Analysis_Log__c`; it was merged into this one, D15.)
 
 ## Run the backfill
 

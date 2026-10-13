@@ -284,12 +284,12 @@ public without sharing class DealIntelligenceJob
     /** Deals with a pending meeting whose last week of logs shows a 429. */
     @TestVisible private static Set<Id> dealsHeldBackByRateLimit(List<Event> pending) {
         Set<String> limitedMeetings = new Set<String>();
-        for (AI_Analysis_Log__c log : [
-            SELECT Event_Id__c, Details__c FROM AI_Analysis_Log__c
-            WHERE Status__c = 'Failed' AND CreatedDate = LAST_N_DAYS:7
+        for (Gemini_Opty_Log__c log : [
+            SELECT Event_Id__c, Error_Message__c FROM Gemini_Opty_Log__c
+            WHERE Status__c = :DealIntelligenceService.FAILED AND CreatedDate = LAST_N_DAYS:7
             WITH SYSTEM_MODE
         ]) {
-            if (log.Details__c != null && log.Details__c.startsWith(DealIntelligenceService.RATE_LIMITED_DETAIL)) {
+            if (log.Error_Message__c != null && log.Error_Message__c.startsWith(DealIntelligenceService.RATE_LIMITED_DETAIL)) {
                 limitedMeetings.add(log.Event_Id__c);
             }
         }

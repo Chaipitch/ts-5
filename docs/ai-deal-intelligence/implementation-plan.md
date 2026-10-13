@@ -23,7 +23,7 @@ Status: **built and tested in the sandbox `dev5-ts`** (8 Oct 2026).
 
 1. ✅ Rename `Proposed_Products_c__c` → `Proposed_Products__c` (D1).
 2. ⏳ Retrieve the 33 fields and `Event.AI_Processed__c` into the project (O3). The code compiles against the org today; any other org needs them deployed first. (Per the team's note, `--output-dir` retrieves 0 files in this org — retrieve into the project, or mdapi-retrieve to a scratch dir and copy across.)
-3. ✅ Permission set `AI_Deal_Intelligence` — access to the Gemini credential, read on both logs. No edit access on the 33 fields is needed: the service writes in system mode.
+3. ✅ Permission set `AI_Deal_Intelligence` — access to the Gemini credential, read on the log. No edit access on the 33 fields is needed: the service writes in system mode.
 
 ## 2. Architecture
 
@@ -50,9 +50,9 @@ The service works from the meeting text plus the Opportunity Id. Event is just t
 | Static resource `DealIntelligencePrompt` | The BA prompt, Sections 1–4 (Section 5's Markdown table dropped, D2). The MOM replaces `{{INSERT_MINUTES_OF_MEETING_HERE}}`. |
 | `Program_Constant__mdt` records | `GeminiMODEL`; `AI_MOM_Types`; `AI_MOM_Subjects` (`*` = any Subject, D14); `AI_MOM_Min_Length` = `100`. **`Value__c` holds only 255 characters and a longer value is cut silently on deploy**, so the Subject list is read from every record whose name starts with `AI_MOM_Subjects` — add `AI_MOM_Subjects_3` rather than lengthening one. |
 | Named Credential + External Credential `Gemini_AI_Studio` | AI Studio (D5). URL `https://generativelanguage.googleapis.com`; header `x-goog-api-key` = `{!$Credential.Gemini_AI_Studio.ApiKey}`. **Per org, by hand:** Setup → External Credentials → Gemini AI Studio → principal `Gemini_AI_Studio_Principal` → parameter `ApiKey`. The Named Credential **must** have *Allow Formulas in HTTP Header* on (`allowMergeFieldsInHeader`), or the key is never filled in and Google answers `API_KEY_INVALID`. `AQ.`-style keys work this way. |
-| `AI_Analysis_Log__c` (new) | `Opportunity__c`, `Event_Id__c`, `Model__c`, `Status__c` (Success / Partial / Failed / Parse Error / Save Failed), `Input_Tokens__c`, `Output_Tokens__c`, `Response__c`, `Changes__c`, `Details__c`. |
-| `Gemini_Opty_Log__c` (team object) | `Opportunity__c`, `Event_Id__c`, `Model__c`, `Status__c` (`Success` for our Success/Partial, `Fail` otherwise), `Error_Message__c`, `Token_Used__c`, `Input_Token__c`, `Output_Token__c`, `JSON_Log__c` (Gemini's JSON, or the error). |
-| Permission set `AI_Deal_Intelligence` | Gemini principal access + read on both logs and their fields. **Every rep who logs MOMs needs it** — real-time runs as the rep. |
+| ~~`AI_Analysis_Log__c`~~ | Merged into `Gemini_Opty_Log__c` and deleted on 13 Oct 2026 (D15). |
+| `Gemini_Opty_Log__c` (team object) — **the only log** | `Opportunity__c`, `Event_Id__c`, `Model__c`, `Status__c` (Success / Partial / Fail / Parse Error / Save Failed — Fail is the team's original value, used for refused or failed calls), `Changes__c`, `Error_Message__c`, `Token_Used__c`, `Input_Token__c`, `Output_Token__c`, `JSON_Log__c` (Gemini's JSON, or the error). |
+| Permission set `AI_Deal_Intelligence` | Gemini principal access + read on Gemini Opty Log and its fields. **Every rep who logs MOMs needs it** — real-time runs as the rep. |
 
 Merge rules follow the field, no config: #1–17 → A, #18–30 → B, #31–33 → C (a fixed list in `DealIntelligenceRules`).
 
@@ -61,8 +61,8 @@ Merge rules follow the field, no config: #1–17 → A, #18–30 → B, #31–33
 | Class | Responsibility |
 |-------|----------------|
 | `DealIntelligenceRules` | **Filter** `isMom(Event)` / `qualifying(List<Event>)`: Type in the config list, and the Subject too unless the Subject list is `*` (D14 — `*` today; case and spaces ignored), trimmed Description ≥ 100, not ticked, on an Opportunity. Missing config → nothing qualifies (never blocks a save). `momTypes()` / `momSubjects()` for the backfill query. **Merge** `mergeAnswer(Opportunity, Map)` (`merge` is reserved in Apex): strips the `N_` key prefix; Rule A; Rule B ("No Data" only fills a blank, real data overwrites, multi-picklists accumulate, invalid picklist values dropped with a warning, text cut to field length); Rule C (Score clamped 1–100; non-numeric Score or empty Reason keeps the old value). Applies changes to the record it is given, returns `changes` + `warnings`. No SOQL / DML. |
-| `DealIntelligenceService` | `analyse(List<Id> eventIds)`: re-reads the Events (oldest first per deal) and re-checks the filter; calls Gemini per meeting — `responseMimeType: application/json`, no temperature (Google advises the default for Gemini 3), 60 s timeout, all callouts before any DML; **after the first refusal (503/429) the rest of the run is held back**; reads the deals **`FOR UPDATE`** (so two jobs on one deal can't lose each other's changes; still locked → handed back as busy); merges; saves with `Database.update(…, false)`; ticks only Events whose deal saved; writes both logs. Without sharing, system mode. Returns a `Summary` (counts, tokens, `busy`, `deferred`, `rateLimited`). |
-| `DealIntelligenceJob` | **Batchable** (`runBackfill()`, 3 per chunk): `start` returns the pending past-year MOMs ordered by deal and meeting date, with **deals held back by a 429 put first** (found through `Failed` logs of the last 7 days whose Details start `HTTP 429`). **Queueable** inner class `RealTime` (one class can't be both Queueable and Batchable): 3 per job, chains the rest; started by `enqueueFor` from the trigger, which never throws. **Schedulable**: the rate-limit retry (2 min or 1 h, §2.4). **Inner class `Nightly`** (Schedulable): the backfill at 02:00 (`0 0 2 * * ?`, in the switching-on user's time zone), switched on by `scheduleNightly()` (a second call changes nothing). Retry policy in §2.4. A backfill started by hand emails a summary; scheduled ones run quietly. |
+| `DealIntelligenceService` | `analyse(List<Id> eventIds)`: re-reads the Events (oldest first per deal) and re-checks the filter; calls Gemini per meeting — `responseMimeType: application/json`, no temperature (Google advises the default for Gemini 3), 60 s timeout, all callouts before any DML; **after the first refusal (503/429) the rest of the run is held back**; reads the deals **`FOR UPDATE`** (so two jobs on one deal can't lose each other's changes; still locked → handed back as busy); merges; saves with `Database.update(…, false)`; ticks only Events whose deal saved; writes the log. Without sharing, system mode. Returns a `Summary` (counts, tokens, `busy`, `deferred`, `rateLimited`). |
+| `DealIntelligenceJob` | **Batchable** (`runBackfill()`, 3 per chunk): `start` returns the pending past-year MOMs ordered by deal and meeting date, with **deals held back by a 429 put first** (found through `Fail` rows of the last 7 days in Gemini Opty Log whose Error Message starts `HTTP 429`). **Queueable** inner class `RealTime` (one class can't be both Queueable and Batchable): 3 per job, chains the rest; started by `enqueueFor` from the trigger, which never throws. **Schedulable**: the rate-limit retry (2 min or 1 h, §2.4). **Inner class `Nightly`** (Schedulable): the backfill at 02:00 (`0 0 2 * * ?`, in the switching-on user's time zone), switched on by `scheduleNightly()` (a second call changes nothing). Retry policy in §2.4. A backfill started by hand emails a summary; scheduled ones run quietly. |
 | `EventTriggerHandler` (extended) | After insert: `DealIntelligenceJob.enqueueFor(Trigger.new)`. Our own tick is an update, so it can't re-trigger. |
 
 Processing order: chunks run one after another in `start`'s order — deal by deal, oldest meeting first — so each deal ends on its latest meeting (FR-20), also when one deal's meetings span two chunks.
@@ -109,7 +109,7 @@ Processing order: chunks run one after another in `start`'s order — deal by de
 ## 4. Deploy order (any new org)
 
 1. The 33 Opportunity fields + `Event.AI_Processed__c` (retrieve first — O3) + layout
-2. `Gemini_Opty_Log__c` and its fields, `AI_Analysis_Log__c`, custom metadata records, static resource
+2. `Gemini_Opty_Log__c` and its fields, custom metadata records, static resource
 3. Named + External Credential `Gemini_AI_Studio`; then enter `ApiKey` in Setup
 4. Permission set `AI_Deal_Intelligence`; assign to reps and to whoever runs the backfill
 5. Apex classes + tests, then the Event trigger / handler change
@@ -121,7 +121,7 @@ Processing order: chunks run one after another in `start`'s order — deal by de
 
 ## 5. Switching model
 
-Change `Program_Constant__mdt.GeminiMODEL` — no code change; both logs record the model. To compare models on the same MOMs, run the reset script on a sample and re-run the backfill. Free-tier quotas are **per model**.
+Change `Program_Constant__mdt.GeminiMODEL` — no code change; the log records the model. To compare models on the same MOMs, run the reset script on a sample and re-run the backfill. Free-tier quotas are **per model**.
 
 > Google notice (Oct 2026): **`gemini-3.7-flash` is deprecated** and redirected to `gemini-3.8-flash` (same pricing). Don't set `GeminiMODEL` to 3.7; for Flash use `gemini-3.8-flash`. The end-to-end test in §6 ran on 3.7 before the change.
 
@@ -148,7 +148,7 @@ Run 2's other 4 deals: 2 had a meeting give up after 3 quick 429 retries (since 
 | Pace | ~**4 meetings a minute** while quota lasts (189 + 298 in the first two hours); ~4 hours of processing spread over 16 hours, the rest waiting for the daily quota |
 | Free-tier ceiling | ~**500 calls a day** on `gemini-3.5-flash-lite` (503 on day 1, 487 after the reset at ~07:00 UTC) |
 | Rate limits | 62 × 429 — 48 per-minute (2-minute retry), 14 used-up daily quota (hourly retry); **no meeting lost** |
-| Integrity | **No meeting analysed twice**; both logs hold exactly 1,052 rows (990 successes + 62 refused calls) |
+| Integrity | **No meeting analysed twice**; both logs (there were two then) held exactly 1,052 rows each (990 successes + 62 refused calls) |
 | Accuracy | **230 of 246** finished regular deals exactly as expected (93.5 %). **All 16 misses are one model mistake:** Lite files the product "Cloudee" as an SI competitor (16 of the 100 deals that mention it) — dropped with a warning, as designed. Merge order, flags, budgets, scores and the deal lock held up under load. |
 | Edge cases | ~8,000-character note fine; same-day meetings merged in time order (score 15 from the 16:00 "paused" meeting); unknown products → "Others"; Thai polite deferral → score 5 |
 | Tokens | ~2,500 in + ~715 out per meeting → about **$0.005 per meeting** at the 3.8 Flash prices in Google's Oct 2026 notice ($0.75 / $3.75 per million) |

@@ -43,10 +43,9 @@ update ticked;
 
 Integer logs = 0;
 if (DELETE_LOGS) {
-    List<AI_Analysis_Log__c> a = [SELECT Id FROM AI_Analysis_Log__c WHERE Opportunity__c IN :oppIds];
     List<Gemini_Opty_Log__c> g = [SELECT Id FROM Gemini_Opty_Log__c WHERE Opportunity__c IN :oppIds];
-    logs = a.size() + g.size();
-    delete a; delete g;
+    logs = g.size();
+    delete g;
 }
 List<Opportunity> stress = new List<Opportunity>();
 if (DELETE_STRESS_DEALS) { stress = [SELECT Id FROM Opportunity WHERE Name LIKE 'AIDI Stress%']; delete stress; }
