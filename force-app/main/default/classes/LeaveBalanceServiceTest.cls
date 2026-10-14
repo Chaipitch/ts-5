@@ -6,8 +6,8 @@ private class LeaveBalanceServiceTest {
      *
      * Which types appear and in what order comes from the org's real
      * Leave_Type_Policy__mdt rows, so these tests assert on behaviour — Annual is
-     * present, Maternity is not, order is non-decreasing — rather than on a count that
-     * would break the next time a leave type is configured.
+     * present, order matches the configured sort — rather than on a count or a named
+     * slot that would break the next time a leave type is configured.
      */
 
     private static Id cachedEmployeeId;
@@ -112,14 +112,26 @@ private class LeaveBalanceServiceTest {
         List<LeaveBalanceService.LeaveBalanceView> views =
             LeaveBalanceService.getBalances(employeeId(), testYear());
 
+        System.assertNotEquals(true, views.isEmpty(),
+            'the configured types must produce rows');
         System.assertNotEquals(null, viewFor(views, 'Annual leave'),
             'a configured type must appear');
-        System.assertEquals(null, viewFor(views, 'Maternity leave'),
-            'Show On Balance Page is off for maternity, so it must not appear');
         System.assertEquals('Annual leave', views[0].leaveType,
             'sort order 1 comes first');
-        System.assertEquals('Refresh Leave', views[1].leaveType,
-            'then sort order 2');
+
+        Map<String, Decimal> sortByType = new Map<String, Decimal>();
+        for (Leave_Type_Policy__mdt policy : Leave_Type_Policy__mdt.getAll().values()) {
+            sortByType.put(policy.Leave_Type__c,
+                policy.Sort_Order__c == null ? 9999 : policy.Sort_Order__c);
+        }
+
+        for (Integer i = 1; i < views.size(); i++) {
+            Decimal previous = sortByType.get(views[i - 1].leaveType);
+            Decimal current = sortByType.get(views[i].leaveType);
+            System.assertEquals(true, previous <= current,
+                views[i - 1].leaveType + ' sorts at ' + previous + ' so it cannot come '
+                + 'before ' + views[i].leaveType + ' at ' + current);
+        }
     }
 
     @isTest

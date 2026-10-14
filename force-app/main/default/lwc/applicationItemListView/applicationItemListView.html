@@ -44,11 +44,74 @@
 
     <!-- EDIT Record Modal Flow -->
     <template if:true={isEditModalOpen}>
-        <!-- ... Keep existing Edit Modal HTML ... -->
+        <section role="dialog" tabindex="-1" aria-modal="true" aria-labelledby="edit-modal-heading"
+                 class="slds-modal slds-fade-in-open">
+            <div class="slds-modal__container">
+                <header class="slds-modal__header">
+                    <button class="slds-button slds-button_icon slds-modal__close slds-button_icon-inverse"
+                            title="Close" onclick={closeEditModal}>
+                        <lightning-icon icon-name="utility:close" alternative-text="Close" size="small"
+                                        ></lightning-icon>
+                    </button>
+                    <h1 id="edit-modal-heading" class="slds-modal__title slds-hyphenate">Edit Request</h1>
+                </header>
+
+                <div class="slds-modal__content slds-p-around_medium">
+                    <lightning-input type="date" label="Start Date" data-field="Term_From__c"
+                                     value={editRecord.Term_From__c} onchange={handleInputChange}
+                                     class="slds-m-bottom_small"></lightning-input>
+                    <lightning-input type="date" label="End Date" data-field="Term_To__c"
+                                     value={editRecord.Term_To__c} onchange={handleInputChange}
+                                     class="slds-m-bottom_small"></lightning-input>
+                    <lightning-combobox label="Request Type" data-field="Request_Type__c"
+                                        value={editRecord.Request_Type__c} options={requestTypeOptions}
+                                        onchange={handleInputChange} class="slds-m-bottom_small"></lightning-combobox>
+                    <lightning-combobox label="Period Leave" data-field="Period_Leave__c"
+                                        value={editRecord.Period_Leave__c} options={periodLeaveOptions}
+                                        onchange={handleInputChange} class="slds-m-bottom_small"></lightning-combobox>
+                    <lightning-textarea label="Reason" data-field="Remark__c"
+                                        value={editRecord.Remark__c} onchange={handleInputChange}></lightning-textarea>
+                </div>
+
+                <footer class="slds-modal__footer">
+                    <button class="slds-button slds-button_neutral" onclick={closeEditModal}>Cancel</button>
+                    <button class="slds-button slds-button_brand" onclick={saveEditRecord}
+                            disabled={isSaveButtonDisabled}>Save</button>
+                </footer>
+            </div>
+        </section>
+        <div class="slds-backdrop slds-backdrop_open"></div>
     </template>
 
     <!-- DELETE Modal Flow -->
     <template if:true={isDeleteModalOpen}>
-        <!-- ... Keep existing Delete Modal HTML ... -->
+        <section role="dialog" tabindex="-1" aria-modal="true" aria-labelledby="delete-modal-heading"
+                 class="slds-modal slds-fade-in-open">
+            <div class="slds-modal__container">
+                <header class="slds-modal__header">
+                    <button class="slds-button slds-button_icon slds-modal__close slds-button_icon-inverse"
+                            title="Close" onclick={closeDeleteModal}>
+                        <lightning-icon icon-name="utility:close" alternative-text="Close" size="small"
+                                        ></lightning-icon>
+                    </button>
+                    <h1 id="delete-modal-heading" class="slds-modal__title slds-hyphenate">Delete Request</h1>
+                </header>
+
+                <div class="slds-modal__content slds-p-around_medium">
+                    <p>Delete <strong>{deleteRecordNumber}</strong>? This cannot be undone.</p>
+                    <template if:true={hasContinuation}>
+                        <p class="slds-m-top_small slds-text-color_weak">{deleteContinuationMessage}</p>
+                    </template>
+                </div>
+
+                <footer class="slds-modal__footer">
+                    <button class="slds-button slds-button_neutral" onclick={closeDeleteModal}
+                            disabled={isDeleting}>Cancel</button>
+                    <button class="slds-button slds-button_destructive" onclick={handleDeleteConfirm}
+                            disabled={isDeleting}>Delete</button>
+                </footer>
+            </div>
+        </section>
+        <div class="slds-backdrop slds-backdrop_open"></div>
     </template>
 </template>

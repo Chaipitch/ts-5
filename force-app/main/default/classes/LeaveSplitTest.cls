@@ -121,11 +121,18 @@ private class LeaveSplitTest {
     static void aTypeOutsideTheCheckIsNeverSplit() {
         useTestPolicies();
         ApplicationItem__c appl = raise('Personal leave', 5, 'Pending');
-        insert appl;
+        String message;
+        try {
+            insert appl;
+        } catch (DmlException e) {
+            message = e.getDmlMessage(0);
+        }
 
-        System.assertEquals(5, reload(appl.Id).Leave_Days__c,
-            'personal leave has Counts Toward LWOP Check off, so it is left whole');
-        System.assertEquals(0, continuationOf(appl.Id).size(), 'and no unpaid record appears');
+        // With nowhere to overflow to, the days past the balance are refused, not split.
+        System.assertNotEquals(null, message, 'five days against two must not be saved');
+        System.assert(message.contains('covers only 2'), message);
+        System.assertEquals(0, [SELECT COUNT() FROM ApplicationItem__c WHERE Request_Type__c = 'Unpaid leave'],
+            'and no unpaid record appears');
     }
 
     // ------------------------------------------------------------------ the split

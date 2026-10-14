@@ -39,7 +39,7 @@
             </div>
 
             <!-- Horizontal Divider -->
-            <div class="slds-border_top slds-m-vertical_medium" style="width: 18rem;"></div>
+            <div class="slds-border_top slds-m-vertical_medium section-divider"></div>
 
            <!-- 1.2 Monthly Working Hours -->
 <div class="slds-grid slds-p-top_small">
@@ -219,8 +219,26 @@
                             <!-- [FIX] Removed invalid style from <template> tag. Added 'standard-spacing' class to the inner div -->
                             <!-- <div class="standard-spacing"> -->
                             <div>
-                                Next Refresh on <span class="text-blue" style="font-weight: 600;">{refreshmentLeave.nextRefresh}</span> 
-                                (In {refreshmentLeave.daysUntilRefresh} Days)
+                                <template if:true={refreshmentSchedule.hasSchedule}>
+                                    <template if:true={refreshmentSchedule.isEstimate}>
+                                        Scheduled for <span class="text-blue" style="font-weight: 600;">{refreshmentSchedule.dates}</span>
+                                        (In {refreshmentSchedule.daysUntil} Days)
+                                    </template>
+                                    <template if:false={refreshmentSchedule.isEstimate}>
+                                        Scheduled <span class="text-blue" style="font-weight: 600;">{refreshmentSchedule.dates}</span>
+                                        · {refreshmentSchedule.status}
+                                        · <a onclick={handleOpenRefreshmentRequest}>Open request</a>
+                                        <template if:true={refreshmentSchedule.isDraft}>
+                                            <div class="text-gray" style="font-size: 0.75rem;">
+                                                Submit it for approval. To take it on another date, change the dates before submitting.
+                                            </div>
+                                        </template>
+                                    </template>
+                                </template>
+                                <template if:false={refreshmentSchedule.hasSchedule}>
+                                    Next Refresh on <span class="text-blue" style="font-weight: 600;">{refreshmentLeave.nextRefresh}</span>
+                                    (In {refreshmentLeave.daysUntilRefresh} Days)
+                                </template>
                             </div>
                         </template>
 

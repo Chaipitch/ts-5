@@ -2,8 +2,17 @@
 public class FlowApprovalActionTest {
     @isTest
     static void testApproveItems() {
-        User user = [SELECT Id,Name,ProfileId ,Start_Date__c FROM User WHERE Profile.Name = 'EngineerGroupMember' AND isActive = true AND Start_Date__c != null ORDER BY LastLoginDate DESC][0];
+        User user = [SELECT Id,Name,ProfileId ,Start_Date__c FROM User WHERE Profile.Name = 'EngineerGroupMember' AND isActive = true AND Start_Date__c != null
+                     AND (Probation_End_Date__c = null OR Probation_End_Date__c < TODAY) ORDER BY LastLoginDate DESC][0];
         system.debug(user);
+        // Tests cannot see the org's balances, and approving Annual leave draws on one.
+        Integer yr = System.today().year();
+        insert new Leave_Balance__c(
+            Employee__c = user.Id, Leave_Type__c = 'Annual leave', Leave_Year__c = yr,
+            External_Key__c = user.Id + '-Annual leave-' + yr,
+            Entitlement_Days__c = 10, Accrual_Method__c = 'Upfront',
+            Carry_Over_Days__c = 0, Used_Days__c = 0, Pending_Days__c = 0, Status__c = 'Active'
+        );
         // Step 1: Create a test record (use an object that has an approval process set up)
         List<ApplicationItem__c> leaveRequestList = new List<ApplicationItem__c>();
         // All day request
@@ -45,6 +54,6 @@ public class FlowApprovalActionTest {
         // Step 5: Assert result
         System.debug('Result: ' + resultMessages);
         System.assert(resultMessages.size() > 0, 'Result should not be empty');
-        System.assert(resultMessages[0].contains('Success'), 'Approval should succeed');
+        System.assert(resultMessages[0].contains('Success'), 'Approval should succeed: ' + resultMessages);
     }
 }

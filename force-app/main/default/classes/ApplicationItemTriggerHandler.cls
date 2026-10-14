@@ -85,6 +85,7 @@ public class ApplicationItemTriggerHandler {
     private void beforeSave(List<ApplicationItem__c> requests, Map<Id, ApplicationItem__c> oldMap) {
         logic.calculateLeaveDays(requests);
         LeaveRequestGuard.enforce(requests, oldMap);
+        LeaveSplitService.refuseUnfunded(requests, oldMap);
         logic.deductLeaveBalance(justApproved(requests, oldMap));
     }
 

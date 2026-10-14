@@ -268,12 +268,38 @@ public class ApplicationItemTriggerLogic {
         Map<String, Leave_Balance__c> balanceByKey = new Map<String, Leave_Balance__c>();
         for (Leave_Balance__c bal : [
             SELECT Id, External_Key__c, Entitlement_Days__c, Accrued_To_Date__c,
-                   Carry_Over_Days__c, Used_Days__c
+                   Carry_Over_Days__c, Carry_Over_Expiry__c, Used_Days__c
             FROM Leave_Balance__c
             WHERE External_Key__c IN :keys
             FOR UPDATE
         ]) {
             balanceByKey.put(bal.External_Key__c, bal);
+        }
+
+        /*
+         * How much carry over each balance has already given up, summed from the
+         * attribution recorded on the requests that took it.
+         *
+         * Used_Days__c cannot stand in for this any more. It was an adequate proxy while
+         * every day of leave drew on carry over, but once leave dated after the expiry
+         * draws nothing, the two part company: five days of August leave raise Used_Days__c
+         * without touching the carry over, and a June request arriving afterwards would
+         * compute a negative remainder and draw nothing when it is entitled to draw.
+         */
+        Map<Id, Decimal> carryDrawn = new Map<Id, Decimal>();
+        Set<Id> balanceIds = new Set<Id>();
+        for (Leave_Balance__c bal : balanceByKey.values()) {
+            balanceIds.add(bal.Id);
+        }
+        if (!balanceIds.isEmpty()) {
+            for (AggregateResult ar : [
+                SELECT Leave_Balance__c bal, SUM(Carry_Over_Days_Used__c) drawn
+                FROM ApplicationItem__c
+                WHERE Leave_Balance__c IN :balanceIds AND Status__c = 'Approved'
+                GROUP BY Leave_Balance__c
+            ]) {
+                carryDrawn.put((Id) ar.get('bal'), zeroIfNull((Decimal) ar.get('drawn')));
+            }
         }
 
         Map<Id, Leave_Balance__c> touched = new Map<Id, Leave_Balance__c>();
@@ -299,9 +325,32 @@ public class ApplicationItemTriggerLogic {
             // what consumed it. Set in the before context, so it costs no extra DML.
             appl.Leave_Balance__c = bal.Id;
 
+            /*
+             * Only leave TAKEN on or before the expiry may draw on carry over. A row with
+             * no expiry date is open rather than closed - carry over that cannot lapse
+             * cannot be spent too late either.
+             */
+            Boolean withinWindow = bal.Carry_Over_Expiry__c == null
+                || appl.Term_From__c <= bal.Carry_Over_Expiry__c;
+
+            /*
+             * Availability, less any carry over this request is not entitled to reach.
+             *
+             * Unspent carry over is what is left of it after consumption, since carry over
+             * is spent first: MAX(0, CarriedIn - Used). Subtracting that for an
+             * out-of-window request stops the guard offering days that expired weeks ago -
+             * which used to let an August request through and settle the row at a negative
+             * balance once the June sweep declined to credit them back.
+             */
+            Decimal unspentCarry = zeroIfNull(bal.Carry_Over_Days__c)
+                                 - zeroIfNull(bal.Used_Days__c);
+            if (unspentCarry < 0) {
+                unspentCarry = 0;
+            }
             Decimal available = zeroIfNull(bal.Accrued_To_Date__c)
                               + zeroIfNull(bal.Carry_Over_Days__c)
-                              - zeroIfNull(bal.Used_Days__c);
+                              - zeroIfNull(bal.Used_Days__c)
+                              - (withinWindow ? 0 : unspentCarry);
             if (policy.Grants_On_Use__c != true && payable > available) {
                 appl.addError(overdrawMessage(appl, policy, available, payable));
                 continue;
@@ -317,11 +366,30 @@ public class ApplicationItemTriggerLogic {
              * how much carry over went unused: lapse = MAX(0, CarriedIn - Used).
              */
             if (TYPE_ANNUAL.equals(appl.Request_Type__c)) {
-                Decimal carryRemaining = zeroIfNull(bal.Carry_Over_Days__c) - zeroIfNull(bal.Used_Days__c);
+                /*
+                 * Only leave TAKEN on or before the expiry may draw on it. Carry over
+                 * exists to be used by June 30; a request dated in August is not a use of
+                 * it. Without this the August request drew on days that were about to
+                 * lapse, and the June 30 sweep then credited them back as though they had
+                 * been spent - two days of leave conjured out of an expiry.
+                 *
+                 * A row with NO expiry date is treated as open, not closed. Carry over
+                 * that cannot lapse cannot be spent too late either, and refusing it would
+                 * strand days on any row the June grant has not stamped - which is the
+                 * very thing migration step 06 existed to repair. This narrows the old
+                 * behaviour to exactly the case that was wrong and no further.
+                 */
+                Decimal alreadyDrawn = zeroIfNull(carryDrawn.get(bal.Id));
+                Decimal carryRemaining = withinWindow
+                    ? zeroIfNull(bal.Carry_Over_Days__c) - alreadyDrawn
+                    : 0;
                 if (carryRemaining < 0) {
                     carryRemaining = 0;
                 }
-                appl.Carry_Over_Days_Used__c = payable <= carryRemaining ? payable : carryRemaining;
+                Decimal drawnNow = payable <= carryRemaining ? payable : carryRemaining;
+                appl.Carry_Over_Days_Used__c = drawnNow;
+                // Two approvals in one batch must not both draw the same days.
+                carryDrawn.put(bal.Id, alreadyDrawn + drawnNow);
             }
 
             bal.Used_Days__c = zeroIfNull(bal.Used_Days__c) + payable;
@@ -437,7 +505,7 @@ public class ApplicationItemTriggerLogic {
     }
 
 
-    private static Boolean isWeekend(Date d) {
+    public static Boolean isWeekend(Date d) {
         return Math.mod(MONDAY_EPOCH.daysBetween(d), 7) >= 5;
     }
 

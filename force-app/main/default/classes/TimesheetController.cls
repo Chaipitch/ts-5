@@ -107,7 +107,6 @@ public without sharing class TimesheetController {
                                                                 Request_Type__c,
                                                                 Period_Leave__c,
                                                                 Remark__c,
-                                                                No_of_Days__c,
                                                                 OwnerId,
                                                                 Status__c
                                                             FROM ApplicationItem__c
@@ -318,6 +317,16 @@ public without sharing class TimesheetController {
          */
         @AuraEnabled public Date nextRefreshmentGrant;
         /*
+         * When the Refreshment Leave is actually taken: the request's dates once the job
+         * has raised it, or the scheduled first day ahead of that (refreshmentEstimated).
+         * Unlike nextRefreshmentGrant these are moved off weekends and holidays.
+         */
+        @AuraEnabled public Date    refreshmentStart;
+        @AuraEnabled public Date    refreshmentEnd;
+        @AuraEnabled public String  refreshmentStatus;
+        @AuraEnabled public Id      refreshmentRequestId;
+        @AuraEnabled public Boolean refreshmentEstimated;
+        /*
          * Duplicated out of `balances` on purpose. This single figure is what the
          * timesheet card shows, and it is what replaces User.Annual_Leave_Day__c, so
          * lifting it here keeps that swap to one line.
@@ -366,6 +375,7 @@ public without sharing class TimesheetController {
         overview.employee = employeeSummary(target, today);
         overview.nextRefreshmentGrant =
             nextAnniversary(overview.employee.startDate, today);
+        applyRefreshmentSchedule(overview, target, yr, today);
         overview.annualAvailable = availableFor(overview.balances, 'Annual leave');
         applyMonthlyHours(overview, target, yr, mo);
         return overview;
@@ -603,11 +613,74 @@ public without sharing class TimesheetController {
     }
 
     private static Date anniversaryIn(Date startDate, Integer yr) {
-        Integer day = startDate.day();
-        if (startDate.month() == 2 && day == 29 && !Date.isLeapYear(yr)) {
-            day = 28;
+        return LeaveManagementController.anniversaryIn(startDate, yr);
+    }
+
+    /*
+     * The Refreshment Leave dates for the card: the request for this leave year when
+     * there is one, otherwise the date the daily job will schedule it on next, marked as
+     * an estimate. The estimate is the first day only; how many days follow depends on
+     * the tier at the time of the grant.
+     */
+    private static void applyRefreshmentSchedule(LeaveOverview overview, Id target,
+                                                 Integer yr, Date today) {
+        for (ApplicationItem__c appl : [
+            SELECT Id, Term_From__c, Term_To__c, Status__c
+            FROM ApplicationItem__c
+            WHERE OwnerId = :target
+              AND Request_Type__c = 'Refresh Leave'
+              AND RecordType.DeveloperName = 'Leave_Request'
+              AND Status__c != 'Rejected'
+              AND CALENDAR_YEAR(Term_From__c) = :yr
+            ORDER BY Term_From__c DESC
+            LIMIT 1
+        ]) {
+            overview.refreshmentRequestId = appl.Id;
+            overview.refreshmentStart     = appl.Term_From__c;
+            overview.refreshmentEnd       = appl.Term_To__c == null ? appl.Term_From__c : appl.Term_To__c;
+            overview.refreshmentStatus    = appl.Status__c;
+            overview.refreshmentEstimated = false;
+            return;
         }
-        return Date.newInstance(yr, startDate.month(), day);
+
+        Date anniversary = overview.nextRefreshmentGrant;
+        if (anniversary == null || yr < today.year()) {
+            return;
+        }
+        // A Draft can only be dated on or after its anniversary month began.
+        Date monthStart = anniversary.toStartOfMonth();
+
+        /*
+         * The grant is made a month ahead, so in December a January anniversary already
+         * has its Draft - dated next year, which the query above does not see.
+         */
+        for (ApplicationItem__c appl : [
+            SELECT Id, Term_From__c, Term_To__c, Status__c
+            FROM ApplicationItem__c
+            WHERE OwnerId = :target
+              AND Request_Type__c = 'Refresh Leave'
+              AND RecordType.DeveloperName = 'Leave_Request'
+              AND Status__c != 'Rejected'
+              AND Term_From__c >= :monthStart
+            ORDER BY Term_From__c
+            LIMIT 1
+        ]) {
+            overview.refreshmentRequestId = appl.Id;
+            overview.refreshmentStart     = appl.Term_From__c;
+            overview.refreshmentEnd       = appl.Term_To__c == null ? appl.Term_From__c : appl.Term_To__c;
+            overview.refreshmentStatus    = appl.Status__c;
+            overview.refreshmentEstimated = false;
+            return;
+        }
+
+        // The anniversary, moved off a weekend or holiday, the same as the daily job.
+        List<Date> firstDay = LeaveManagementController.refreshScheduleFor(
+            anniversary, 1, today,
+            ApplicationItemTriggerLogic.holidaysBetween(anniversary, anniversary.addDays(14)));
+        if (!firstDay.isEmpty()) {
+            overview.refreshmentStart     = firstDay[0];
+            overview.refreshmentEstimated = true;
+        }
     }
 
     // ==================================================================== list view
@@ -648,7 +721,7 @@ public without sharing class TimesheetController {
      */
     private static final String ITEM_FIELDS =
         'Id, Name, RecordTypeId, RecordType.DeveloperName, Request_Type__c,'
-      + ' Period_Leave__c, Term_From__c, Term_To__c, No_of_Days__c, Remark__c,'
+      + ' Period_Leave__c, Term_From__c, Term_To__c, Remark__c,'
       + ' Status__c, Split_From__c,'
       + ' OT_Start__c, OT_End__c, Overtime_Hours__c, Project__c, Project__r.Project_Name__c,'
       + ' OwnerId, Owner.Name, Owner.FirstName';

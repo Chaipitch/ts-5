@@ -77,6 +77,8 @@ public with sharing class LeaveManagementControllerTest {
             newUser(p.Id, 'Anniv3',     Date.newInstance(2023, 3, 15)),
             newUser(p.Id, 'Anniv7',     Date.newInstance(2019, 6, 10)),
             newUser(p.Id, 'LeapJoin',   Date.newInstance(2024, 2, 29)),
+            newUser(p.Id, 'AnnivLate',  Date.newInstance(2021, 3, 30)),
+            newUser(p.Id, 'AnnivDec',   Date.newInstance(2021, 12, 1)),
             newUser(p.Id, 'CarryLapse', Date.newInstance(2020, 1, 1)),
             newUser(p.Id, 'RefLapse',   Date.newInstance(2020, 1, 1))
         };
@@ -282,24 +284,25 @@ public with sharing class LeaveManagementControllerTest {
     // ------------------------------------------------------------------ refreshment
 
     /*
-     * . Anniv3 joined on 15 March; the grant now lands on the 1st, because the
-     * anniversary MONTH is the rule. The tier is unchanged by moving the date forward:
-     * monthsBetween ignores the day, so 1 March of the fourth year still reads as
-     * thirty-six months.
+     * The grant is made a month ahead of the anniversary month. Anniv3 joined on
+     * 15 March 2023, so the grant lands on 1 February. The tier is measured at the
+     * anniversary month, not the run date: 1 February reads as thirty-five months and
+     * would have been the second-year tier.
      */
     @isTest
-    static void refreshGrantLandsAtTheStartOfTheAnniversaryMonth() {
+    static void refreshGrantLandsAMonthAheadOfTheAnniversaryMonth() {
         useFixtures();
         Test.startTest();
-        LeaveManagementController.runDaily(Date.newInstance(2026, 3, 1));
+        LeaveManagementController.runDaily(Date.newInstance(2026, 2, 1));
         Test.stopTest();
 
         Leave_Balance__c r = row('Anniv3', REFRESH, GRANT_YEAR);
-        System.assertEquals(3, r.Entitlement_Days__c, 'three completed years grants three days');
-        System.assertEquals(Date.newInstance(2026, 4, 1), r.Expiry_Date__c,
-            'the window is one month from the grant');
-        System.assertEquals(Date.newInstance(2026, 3, 1), r.Granted_On__c,
-            'stamped on the first of the anniversary month, not the joining day');
+        System.assertEquals(3, r.Entitlement_Days__c,
+            'three completed years by the anniversary month grants three days');
+        System.assertEquals(Date.newInstance(2026, 4, 14), r.Expiry_Date__c,
+            'usable to a month after the anniversary, not counted from the grant');
+        System.assertEquals(Date.newInstance(2026, 2, 1), r.Granted_On__c,
+            'stamped on the day it was handed over, a month ahead');
     }
 
     /*
@@ -412,7 +415,7 @@ public with sharing class LeaveManagementControllerTest {
      * offset them and charge them to the current year, so both sides move together.
      */
     @isTest
-    static void lapsedCarryOverEmptiesTheBucketAndTheDaysItPaidFor() {
+    static void lapsedCarryOverIsChargedToUsedAndTheBucketIsKept() {
         useFixtures();
         Test.startTest();
         LeaveManagementController.runDaily(GRANT_DAY);            // carry 6, expiry Jun 30
@@ -423,10 +426,10 @@ public with sharing class LeaveManagementControllerTest {
         Test.stopTest();
 
         Leave_Balance__c r = row('CapCarry', ANNUAL, GRANT_YEAR);
-        System.assertEquals(0, r.Carry_Over_Days__c,
-            'the carried bucket reads zero once it has expired');
-        System.assertEquals(0, r.Used_Days__c,
-            'and the 4 days it paid for are no longer charged to the current year');
+        System.assertEquals(6, r.Carry_Over_Days__c,
+            'the carried bucket keeps its figure - zeroing it left the card reading 0 / 0');
+        System.assertEquals(6, r.Used_Days__c,
+            'the 4 it paid for plus the 2 that lapsed, so Available is unchanged');
         System.assertEquals(Date.newInstance(2026, 6, 30), r.Carry_Over_Expiry__c,
             'the date is kept: it is the record of when the days lapsed');
     }
@@ -448,9 +451,9 @@ public with sharing class LeaveManagementControllerTest {
         Test.stopTest();
 
         Leave_Balance__c r = row('CapCarry', ANNUAL, GRANT_YEAR);
-        System.assertEquals(0, r.Carry_Over_Days__c);
-        System.assertEquals(3, r.Used_Days__c,
-            'the 3 days taken out of this year survive the carry over expiring');
+        System.assertEquals(6, r.Carry_Over_Days__c, 'the carried figure is kept');
+        System.assertEquals(9, r.Used_Days__c,
+            'nothing lapsed - all 6 were spent - so the figures do not move at all');
     }
 
     /*
@@ -472,8 +475,10 @@ public with sharing class LeaveManagementControllerTest {
         Test.stopTest();
 
         Leave_Balance__c r = row('CapCarry', ANNUAL, GRANT_YEAR);
-        System.assertEquals(0, r.Carry_Over_Days__c, 'still zero, not driven below it');
-        System.assertEquals(0, r.Used_Days__c, 'and Used is not reduced a second time');
+        System.assertEquals(6, r.Carry_Over_Days__c,
+            'the carried figure is kept - it is what the balance card shows');
+        System.assertEquals(6, r.Used_Days__c,
+            'the 2 lapsed days are charged once, not once per night');
         System.assertEquals(Date.newInstance(2026, 6, 30), r.Carry_Over_Expiry__c);
     }
 
@@ -502,8 +507,9 @@ public with sharing class LeaveManagementControllerTest {
 
         Leave_Balance__c after = [SELECT Carry_Over_Days__c, Carry_Over_Remaining__c
                                   FROM Leave_Balance__c WHERE Id = :balId];
-        System.assertEquals(0, after.Carry_Over_Days__c);
-        System.assertEquals(0, after.Carry_Over_Remaining__c, 'and none after the sweep');
+        System.assertEquals(6, after.Carry_Over_Days__c, 'the raw figure still does not move');
+        System.assertEquals(0, after.Carry_Over_Remaining__c,
+            'and none remain, because Used now covers the whole carried amount');
     }
 
     @isTest
@@ -524,18 +530,18 @@ public with sharing class LeaveManagementControllerTest {
     static void lapsedRefreshmentIsWipedDownToWhatWasUsed() {
         useFixtures();
         Test.startTest();
-        LeaveManagementController.runDaily(Date.newInstance(2026, 3, 15));   // 3 days, expires Apr 15
+        LeaveManagementController.runDaily(Date.newInstance(2026, 3, 15));   // catch-up grant, 3 days, usable to Apr 14
         update new Leave_Balance__c(Id = [SELECT Id FROM Leave_Balance__c
             WHERE Employee__r.LastName = 'Anniv3' AND Leave_Type__c = :REFRESH].Id,
             Used_Days__c = 1);
-        LeaveManagementController.runDaily(Date.newInstance(2026, 4, 16));
+        LeaveManagementController.runDaily(Date.newInstance(2026, 5, 1));
         Test.stopTest();
 
         Leave_Balance__c r = row('Anniv3', REFRESH, GRANT_YEAR);
         System.assertEquals(1, r.Entitlement_Days__c,
             'the two unused days are wiped; the one taken remains accounted for');
         System.assertEquals(0, r.Available_Balance__c, 'nothing is left to use');
-        System.assertEquals(Date.newInstance(2026, 4, 15), r.Expiry_Date__c,
+        System.assertEquals(Date.newInstance(2026, 4, 14), r.Expiry_Date__c,
             'the expiry date is retained as the date the grant lapsed');
     }
 
@@ -548,8 +554,8 @@ public with sharing class LeaveManagementControllerTest {
     static void lapsedRefreshmentIsNotRewrittenOnLaterRuns() {
         useFixtures();
         Test.startTest();
-        LeaveManagementController.runDaily(Date.newInstance(2026, 3, 15));   // grant, expires Apr 15
-        LeaveManagementController.runDaily(Date.newInstance(2026, 4, 16));   // sweeps it to zero
+        LeaveManagementController.runDaily(Date.newInstance(2026, 3, 15));   // catch-up grant, usable to Apr 14
+        LeaveManagementController.runDaily(Date.newInstance(2026, 5, 1));    // sweeps it to zero
 
         /*
          * Asserted against this row rather than against Limits.getDmlRows(). The grant
@@ -561,7 +567,7 @@ public with sharing class LeaveManagementControllerTest {
         Datetime touchedBefore = [SELECT LastModifiedDate FROM Leave_Balance__c
                                   WHERE Employee__r.LastName = 'Anniv3'
                                     AND Leave_Type__c = :REFRESH].LastModifiedDate;
-        LeaveManagementController.runDaily(Date.newInstance(2026, 5, 20));
+        LeaveManagementController.runDaily(Date.newInstance(2026, 6, 20));
         Test.stopTest();
 
         System.assertEquals(touchedBefore,
@@ -572,7 +578,7 @@ public with sharing class LeaveManagementControllerTest {
 
         Leave_Balance__c r = row('Anniv3', REFRESH, GRANT_YEAR);
         System.assertEquals(0, r.Entitlement_Days__c, 'still zero');
-        System.assertEquals(Date.newInstance(2026, 4, 15), r.Expiry_Date__c,
+        System.assertEquals(Date.newInstance(2026, 4, 14), r.Expiry_Date__c,
             'the lapse date still stands');
     }
 
@@ -591,4 +597,180 @@ public with sharing class LeaveManagementControllerTest {
             'the freshly written expiry date is not swept by the same run');
     }
 
+    // ------------------------------------------------------------------ refreshment drafts
+
+    private static List<ApplicationItem__c> refreshRequests(String lastName) {
+        return [
+            SELECT Id, Request_Type__c, Status__c, Term_From__c, Term_To__c, Leave_Days__c,
+                   Period_Leave__c, Remark__c, RecordType.DeveloperName
+            FROM ApplicationItem__c
+            WHERE Owner.LastName = :lastName
+            ORDER BY Term_From__c
+        ];
+    }
+
+    /*
+     * The grant raises the Draft a month ahead, dated from the anniversary and moved off
+     * the weekend. Anniv3's anniversary is Sunday 15 March 2026 and the run is on
+     * 1 February, so the three days start on Monday the 16th. The expected days come from the same helper so
+     * a dated Holiday in the org cannot make the test depend on the calendar; the helper
+     * itself is pinned further down.
+     */
+    @isTest
+    static void refreshGrantRaisesADraftAMonthAheadOfTheAnniversary() {
+        useFixtures();
+        Test.startTest();
+        LeaveManagementController.runDaily(Date.newInstance(2026, 2, 1));
+        Test.stopTest();
+
+        List<Date> expected = LeaveManagementController.refreshScheduleFor(
+            Date.newInstance(2026, 3, 15), 3, Date.newInstance(2026, 2, 1),
+            ApplicationItemTriggerLogic.holidaysBetween(
+                Date.newInstance(2026, 3, 1), Date.newInstance(2026, 12, 31)));
+
+        List<ApplicationItem__c> raised = refreshRequests('Anniv3');
+        System.assertEquals(1, raised.size(),
+            'one Draft, and nothing split off it - it asks for exactly the granted days');
+        ApplicationItem__c draft = raised[0];
+        System.assertEquals('Refresh Leave', draft.Request_Type__c,
+            'raised as Refreshment Leave, never as unpaid leave');
+        System.assertEquals('Draft', draft.Status__c, 'the employee still submits it');
+        System.assertEquals('Leave_Request', draft.RecordType.DeveloperName);
+        System.assertEquals('All day', draft.Period_Leave__c);
+        System.assertEquals(expected[0], draft.Term_From__c);
+        System.assert(draft.Term_From__c >= Date.newInstance(2026, 3, 15),
+            'scheduled on the anniversary, not before it');
+        System.assertEquals(expected[2], draft.Term_To__c);
+        System.assertEquals(3, draft.Leave_Days__c);
+        System.assert(draft.Remark__c.startsWith(LeaveManagementController.REFRESH_SCHEDULE_NOTE),
+            'the Remark carries the note the guard recognises a generated Draft by');
+    }
+
+    @isTest
+    static void refreshDraftIsRaisedOncePerYear() {
+        useFixtures();
+        Test.startTest();
+        LeaveManagementController.runDaily(Date.newInstance(2026, 2, 1));
+        LeaveManagementController.runDaily(Date.newInstance(2026, 2, 2));
+        // The anniversary month arrives; its catch-up must find the grant already made.
+        LeaveManagementController.runDaily(Date.newInstance(2026, 3, 1));
+        Test.stopTest();
+
+        System.assertEquals(1, refreshRequests('Anniv3').size(),
+            'later runs find the grant stamped and raise nothing more');
+    }
+
+    /*
+     * Monday 30 March plus five business days ends on Friday 3 April. The grant is good
+     * to a month after the anniversary, 29 April, so the April days are inside it and
+     * the Draft is saved whole.
+     */
+    @isTest
+    static void aLateAnniversaryRunsIntoTheFollowingMonth() {
+        useFixtures();
+        Test.startTest();
+        LeaveManagementController.runDaily(Date.newInstance(2026, 2, 1));
+        Test.stopTest();
+
+        List<ApplicationItem__c> raised = refreshRequests('AnnivLate');
+        System.assertEquals(1, raised.size(), 'no part of it was split off');
+        ApplicationItem__c draft = raised[0];
+        System.assertEquals(5, draft.Leave_Days__c);
+        System.assertEquals(4, draft.Term_To__c.month(), 'it runs into April');
+        System.assertEquals(Date.newInstance(2026, 4, 29),
+            row('AnnivLate', REFRESH, GRANT_YEAR).Expiry_Date__c,
+            'usable to a month after the anniversary, less a day');
+    }
+
+    /*
+     * A December anniversary is granted in November. AnnivDec joined on 1 December 2021,
+     * so the five days run from Tuesday 1 December 2026, well inside the year.
+     */
+    @isTest
+    static void aDecemberAnniversaryIsGrantedInNovember() {
+        useFixtures();
+        Test.startTest();
+        LeaveManagementController.runDaily(Date.newInstance(2026, 11, 1));
+        Test.stopTest();
+
+        List<ApplicationItem__c> raised = refreshRequests('AnnivDec');
+        System.assertEquals(1, raised.size());
+        ApplicationItem__c draft = raised[0];
+        System.assertEquals(5, draft.Leave_Days__c, 'nothing cut off at December 31');
+        System.assertEquals(12, draft.Term_From__c.month());
+        System.assertEquals(2026, draft.Term_To__c.year());
+        System.assert(!draft.Remark__c.contains('before the year ends'),
+            'the shortened-schedule note only appears when days were cut off');
+    }
+
+    /*
+     * The employee can move a generated Draft before submitting it without having to
+     * explain why; the manager sees the new dates at approval.
+     */
+    @isTest
+    static void aGeneratedDraftCanBeMovedFreely() {
+        useFixtures();
+        LeaveDocumentPolicy.bypassOverride = false;
+        LeaveManagementController.runDaily(Date.newInstance(2026, 3, 1));
+        ApplicationItem__c draft = refreshRequests('Anniv3')[0];
+
+        Test.startTest();
+        draft.Term_From__c = Date.newInstance(2026, 3, 23);
+        draft.Term_To__c = Date.newInstance(2026, 3, 25);
+        Database.SaveResult result = Database.update(draft, false);
+        Test.stopTest();
+
+        System.assert(result.isSuccess(),
+            'new dates under the generated Remark are accepted: ' + result.getErrors());
+        System.assertEquals(Date.newInstance(2026, 3, 23),
+            [SELECT Term_From__c FROM ApplicationItem__c WHERE Id = :draft.Id].Term_From__c);
+    }
+
+    /*
+     * The year boundary of granting a month ahead. CarryLapse joined on 1 January 2020,
+     * so the December run grants the January anniversary: onto next year's row, because
+     * the leave falls next year, and spendable at once, or the Draft would be split off
+     * to Annual leave on save for want of an available balance.
+     */
+    @isTest
+    static void aJanuaryAnniversaryIsGrantedInDecemberOntoNextYear() {
+        useFixtures();
+        Test.startTest();
+        LeaveManagementController.runDaily(Date.newInstance(2026, 12, 1));
+        Test.stopTest();
+
+        Leave_Balance__c r = row('CarryLapse', REFRESH, GRANT_YEAR + 1);
+        System.assertNotEquals(null, r, 'the balance belongs to the year the leave is taken in');
+        System.assertEquals(5, r.Entitlement_Days__c, 'seven years by January 2027 keeps the top tier');
+        System.assertEquals(5, r.Available_Balance__c, 'spendable the day it is granted');
+        System.assertEquals(Date.newInstance(2027, 1, 31), r.Expiry_Date__c,
+            'a month after the January 1 anniversary, less a day');
+        Leave_Balance__c thisYear = row('CarryLapse', REFRESH, GRANT_YEAR);
+        System.assert(thisYear == null || thisYear.Granted_On__c == null,
+            'this year\'s row is not the one granted');
+
+        List<ApplicationItem__c> raised = refreshRequests('CarryLapse');
+        System.assertEquals(1, raised.size(), 'one Draft and nothing split off it');
+        System.assertEquals(2027, raised[0].Term_From__c.year());
+        System.assertEquals(1, raised[0].Term_From__c.month());
+        System.assertEquals(5, raised[0].Leave_Days__c);
+    }
+
+    /*
+     * The lead time is one constant. Set to zero, the grant goes back to the 1st of the
+     * anniversary month and a run a month ahead grants nothing.
+     */
+    @isTest
+    static void withNoLeadTimeTheGrantWaitsForTheAnniversaryMonth() {
+        useFixtures();
+        LeaveManagementController.leadMonthsOverride = 0;
+        Test.startTest();
+        LeaveManagementController.runDaily(Date.newInstance(2026, 2, 1));
+        Test.stopTest();
+
+        Leave_Balance__c r = row('Anniv3', REFRESH, GRANT_YEAR);
+        System.assert(r == null || r.Granted_On__c == null,
+            'a March anniversary is not granted in February without a lead time');
+        System.assertEquals(0, refreshRequests('Anniv3').size());
+    }
 }

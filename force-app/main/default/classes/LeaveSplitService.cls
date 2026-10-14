@@ -49,6 +49,16 @@ public without sharing class LeaveSplitService {
         Decimal available;
         Date closesOn;      // null for a balance that does not expire
         Date opensOn;
+        /*
+         * The carry over inside `available`, and the date it stops being reachable.
+         *
+         * Held apart because the two halves of an annual pool do not fund the same dates:
+         * accrued days fund any day of the year, carried days only those on or before
+         * June 30. Folded together, the splitter offered days that had already lapsed and
+         * the row settled negative once the June sweep declined to credit them back.
+         */
+        Decimal carryAvailable;
+        Date carryClosesOn;
     }
 
     /**
@@ -106,6 +116,85 @@ public without sharing class LeaveSplitService {
         if (!toEvaluate.isEmpty()) {
             evaluate(toEvaluate, false, supersededByParent);
         }
+    }
+
+    /**
+     * A type that spends a fixed balance but has nowhere to overflow to is refused at save
+     * when its days run past what that balance funds - beyond the days left, before the
+     * grant or after the expiry - rather than saved as a request nobody can approve.
+     *
+     * Measured the way the split measures it, working day by working day, so weekends
+     * and holidays inside the range cost nothing. A type with no balance row is left to
+     * the deduction on approval, which already says so.
+     */
+    public static void refuseUnfunded(List<ApplicationItem__c> requests, Map<Id, ApplicationItem__c> oldMap) {
+        List<ApplicationItem__c> candidates = new List<ApplicationItem__c>();
+        Set<String> keys = new Set<String>();
+        for (ApplicationItem__c appl : requests) {
+            // A request already refused on other grounds fails on those alone.
+            if (appl.hasErrors() || appl.Term_From__c == null || zeroIfNull(appl.Leave_Days__c) <= 0
+                || STATUS_APPROVED.equals(appl.Status__c) || 'Rejected'.equals(appl.Status__c)
+                || !isReshaped(appl, oldMap)) {
+                continue;
+            }
+            Leave_Type_Policy__mdt policy = ApplicationItemTriggerLogic.policyFor(appl.Request_Type__c);
+            if (policy == null || policy.Deducts_Balance__c != true
+                || policy.Grants_On_Use__c == true || String.isNotBlank(policy.Overflow_To__c)) {
+                continue;
+            }
+            candidates.add(appl);
+            keys.add(ApplicationItemTriggerLogic.balanceKey(
+                appl.OwnerId, appl.Request_Type__c, appl.Term_From__c.year()));
+        }
+        if (candidates.isEmpty()) {
+            return;
+        }
+
+        Map<String, Pool> poolByKey = poolsFor(keys);
+        Set<Date> holidays = ApplicationItemTriggerLogic.holidaysForBatch(candidates);
+        for (ApplicationItem__c appl : candidates) {
+            Pool pool = poolByKey.get(ApplicationItemTriggerLogic.balanceKey(
+                appl.OwnerId, appl.Request_Type__c, appl.Term_From__c.year()));
+            if (pool == null) {
+                continue;
+            }
+            List<Half> halves = halvesFor(appl, ApplicationItemTriggerLogic.workingDaysFor(appl, holidays));
+            Integer usable = capacityOf(pool, halves, 0, halves.size());
+            if (usable < halves.size()) {
+                appl.addError(unfundedMessage(appl, pool, halves, usable));
+            }
+        }
+    }
+
+    private static Boolean isReshaped(ApplicationItem__c appl, Map<Id, ApplicationItem__c> oldMap) {
+        ApplicationItem__c prior = oldMap == null ? null : oldMap.get(appl.Id);
+        return prior == null
+            || prior.Term_From__c != appl.Term_From__c
+            || prior.Term_To__c != appl.Term_To__c
+            || prior.Request_Type__c != appl.Request_Type__c
+            || prior.Period_Leave__c != appl.Period_Leave__c;
+    }
+
+    private static String unfundedMessage(ApplicationItem__c appl, Pool pool,
+                                          List<Half> halves, Integer usable) {
+        String message = appl.Request_Type__c + ': this request is for '
+            + (halves.size() / 2.0).stripTrailingZeros().toPlainString() + ' working day(s), but ';
+        message += usable == 0
+            ? 'your balance covers none of them.'
+            : 'your balance covers only ' + (usable / 2.0).stripTrailingZeros().toPlainString()
+              + ' (up to ' + shown(halves[usable - 1].day) + ').';
+        message += ' You have ' + zeroIfNull(pool.available).stripTrailingZeros().toPlainString()
+            + ' day(s) left';
+        if (pool.opensOn != null && pool.closesOn != null) {
+            message += ', to be taken between ' + shown(pool.opensOn) + ' and ' + shown(pool.closesOn);
+        } else if (pool.closesOn != null) {
+            message += ', to be taken by ' + shown(pool.closesOn);
+        }
+        return message + '. Shorten the request to fit, and raise any further days as a separate request.';
+    }
+
+    private static String shown(Date day) {
+        return Datetime.newInstance(day, Time.newInstance(0, 0, 0, 0)).format('yyyy/MM/dd');
     }
 
     public static void rebuildFrom(List<ApplicationItem__c> keep, List<ApplicationItem__c> discard) {
@@ -322,17 +411,35 @@ public without sharing class LeaveSplitService {
         if (pool == null || pool.available == null || pool.available <= 0) {
             return 0;
         }
-        Integer affordable = (Integer) (pool.available * 2).round(System.RoundingMode.DOWN);
-        if (affordable > total - cursor) {
-            affordable = total - cursor;
+        /*
+         * Spent half a day at a time, drawing on the carried days first and falling back
+         * to the accrued ones, so a request that straddles June 30 is funded correctly on
+         * both sides of it: carried days pay for the June halves and accrued days for the
+         * July ones. Days arrive in date order, so the carry window is always the front of
+         * the range and never has to be revisited.
+         */
+        Decimal carryLeft = pool.carryAvailable == null ? 0 : pool.carryAvailable;
+        Decimal accruedLeft = pool.available - carryLeft;
+        if (accruedLeft < 0) {
+            accruedLeft = 0;
         }
-        if (pool.closesOn == null) {
-            return affordable; // a balance that does not expire funds any date
-        }
+
         Integer usable = 0;
-        while (usable < affordable) {
+        Integer room = total - cursor;
+        while (usable < room) {
             Date day = halves[cursor + usable].day;
-            if (day > pool.closesOn || (pool.opensOn != null && day < pool.opensOn)) {
+            if (pool.closesOn != null && day > pool.closesOn) {
+                break;
+            }
+            if (pool.opensOn != null && day < pool.opensOn) {
+                break;
+            }
+            Boolean carryReaches = pool.carryClosesOn == null || day <= pool.carryClosesOn;
+            if (carryReaches && carryLeft >= 0.5) {
+                carryLeft -= 0.5;
+            } else if (accruedLeft >= 0.5) {
+                accruedLeft -= 0.5;
+            } else {
                 break;
             }
             usable++;
@@ -344,13 +451,21 @@ public without sharing class LeaveSplitService {
         Map<String, Pool> pools = new Map<String, Pool>();
         for (Leave_Balance__c bal : [
             SELECT External_Key__c, Accrued_To_Date__c, Carry_Over_Days__c, Used_Days__c,
-                   Granted_On__c, Expiry_Date__c
+                   Granted_On__c, Expiry_Date__c, Carry_Over_Expiry__c
             FROM Leave_Balance__c
             WHERE External_Key__c IN :keys
         ]) {
             Pool pool = new Pool();
             pool.available = zeroIfNull(bal.Accrued_To_Date__c) + zeroIfNull(bal.Carry_Over_Days__c)
                            - zeroIfNull(bal.Used_Days__c);
+            /*
+             * What is LEFT of the carry over, since it is spent before the current year:
+             * MAX(0, CarriedIn - Used). Once consumption has passed the carried amount
+             * there is none left to date-limit and the pool is ordinary accrued days.
+             */
+            Decimal carryLeft = zeroIfNull(bal.Carry_Over_Days__c) - zeroIfNull(bal.Used_Days__c);
+            pool.carryAvailable = carryLeft < 0 ? 0 : carryLeft;
+            pool.carryClosesOn = bal.Carry_Over_Expiry__c;
             pool.closesOn = bal.Expiry_Date__c;
             pool.opensOn = bal.Granted_On__c;
             pools.put(bal.External_Key__c, pool);

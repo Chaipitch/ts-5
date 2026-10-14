@@ -19,6 +19,17 @@ private class LeaveAccrualServiceTest {
             'A year that has not started yet has earned nothing, whatever the method.');
     }
 
+    /*
+     * The one exception: refreshment granted ahead of its anniversary month, which for a
+     * January anniversary means a December grant onto next year's row.
+     */
+    @isTest
+    static void futureYearRefreshmentGrantReadsInFull() {
+        System.assertEquals(5, LeaveAccrualService.accruedFor(
+            JOINED_2020, 2025, 'Anniversary', 5, Date.newInstance(2024, 12, 1)),
+            'A refreshment grant made a month ahead is spendable as soon as it is made.');
+    }
+
     @isTest
     static void closedYearReadsFullEntitlement() {
         // Monthly, and deliberately measured in January so a calendar-derived accrual

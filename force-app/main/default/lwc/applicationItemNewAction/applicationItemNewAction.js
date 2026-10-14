@@ -182,8 +182,12 @@ export default class ApplicationItemNewAction extends NavigationMixin(LightningE
         const end = this.currentTermTo ? new Date(this.currentTermTo) : start;
 
         if (end >= start) {
-            const diffTime = Math.abs(end - start);
-            requestedDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+            // Weekends cost nothing, as on the server; holidays are left to the save.
+            requestedDays = 0;
+            for (const day = new Date(start); day <= end; day.setDate(day.getDate() + 1)) {
+                if (day.getDay() !== 0 && day.getDay() !== 6) requestedDays++;
+            }
+            requestedDays = Math.max(requestedDays, 1);
 
             if (this.currentPeriodLeave === 'AM leave' || this.currentPeriodLeave === 'PM leave') {
                 requestedDays = 0.5; 
@@ -192,7 +196,9 @@ export default class ApplicationItemNewAction extends NavigationMixin(LightningE
 
         if (requestedDays > availableDays) {
             this.showLeaveWarning = true;
-            this.leaveWarningMessage = `You are requesting ${requestedDays} day(s), but you only have ${availableDays} day(s) of ${this.currentLeaveType} available. The excess will be calculated as Leave Without Pay.`;
+            this.leaveWarningMessage = this.currentLeaveType === 'Refresh Leave'
+                ? `You are requesting ${requestedDays} day(s), but you only have ${availableDays} day(s) of Refresh Leave available. Shorten the request - Refresh Leave cannot go past its balance or its expiry date.`
+                : `You are requesting ${requestedDays} day(s), but you only have ${availableDays} day(s) of ${this.currentLeaveType} available. The excess will be calculated as Leave Without Pay.`;
         }
     }
 

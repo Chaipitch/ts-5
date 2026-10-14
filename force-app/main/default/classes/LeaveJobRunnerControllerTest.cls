@@ -212,8 +212,10 @@ private class LeaveJobRunnerControllerTest {
         System.assert(r.summary.contains('Applied'), r.summary);
 
         Leave_Balance__c after = annualRow();
-        System.assertEquals(0, after.Carry_Over_Days__c, 'the bucket was emptied and kept');
-        System.assertEquals(0, after.Used_Days__c, 'along with the days it paid for');
+        System.assertEquals(6, after.Carry_Over_Days__c,
+            'the carried figure is kept - it is what the balance card shows');
+        System.assertEquals(6, after.Used_Days__c,
+            'the 4 it paid for plus the 2 that lapsed, so Available is unchanged');
     }
 
     // --------------------------------------------------------------- what it reports
@@ -232,21 +234,33 @@ private class LeaveJobRunnerControllerTest {
         Test.stopTest();
 
         Boolean foundCarry = false;
+        Boolean foundUsed = false;
         for (LeaveJobRunnerController.BalanceRow row : r.rows) {
             if (!ANNUAL.equals(row.leaveType)) {
                 continue;
             }
             System.assertEquals(true, row.changed, 'the annual row moved');
             for (LeaveJobRunnerController.Cell c : row.cells) {
+                /*
+                 * Carried In no longer moves. The sweep charges the lapse to Used and
+                 * leaves the carried figure standing, because it is what the balance card
+                 * reads back as "remaining / carried in" - zeroing it left every employee
+                 * looking at 0 / 0 from July onwards.
+                 */
                 if ('Carried In'.equals(c.label)) {
                     foundCarry = true;
+                    System.assertEquals(false, c.changed, 'the carried figure is kept');
+                }
+                if ('Used'.equals(c.label)) {
+                    foundUsed = true;
                     System.assertEquals(true, c.changed);
-                    System.assertEquals('6 → 0', c.value,
-                        'both sides of the change, in one cell');
+                    System.assertEquals('4 → 6', c.value,
+                        'both sides of the change, in one cell: 2 days lapsed');
                 }
             }
         }
         System.assertEquals(true, foundCarry, 'the Carried In figure is reported');
+        System.assertEquals(true, foundUsed, 'and so is Used, which is what moved');
     }
 
     /*

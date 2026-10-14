@@ -91,6 +91,133 @@ private class LeaveDeductionTest {
         };
     }
 
+    /*
+     * Carry over exists to be used by June 30. Leave TAKEN after that is not a use of it.
+     *
+     * Before this rule, an August request drew on days that were about to lapse and the
+     * June 30 sweep then credited them back as though they had been spent, turning an
+     * expiry into free leave.
+     */
+    @isTest
+    static void leaveAfterTheExpiryDrawsNoCarryOver() {
+        Leave_Balance__c annual = balance('Annual leave');
+        annual.Carry_Over_Expiry__c = Date.newInstance(testYear(), 6, 30);
+        update annual;
+
+        ApplicationItem__c appl = new ApplicationItem__c(
+            OwnerId = testUserId(), Request_Type__c = 'Annual leave',
+            Term_From__c = Date.newInstance(testYear(), 8, 3),
+            Period_Leave__c = 'All day', Remark__c = 'after the carry over window',
+            Status__c = 'Approved');
+
+        Test.startTest();
+        insert appl;
+        Test.stopTest();
+
+        ApplicationItem__c saved = [SELECT Carry_Over_Days_Used__c, Balance_Applied_Days__c
+                                    FROM ApplicationItem__c WHERE Id = :appl.Id];
+        System.assertEquals(0, saved.Carry_Over_Days_Used__c,
+            'August leave may not draw on carry over that lapsed in June');
+        System.assertEquals(1, saved.Balance_Applied_Days__c,
+            'it still spends a day of the ordinary entitlement');
+    }
+
+    /* And leave inside the window still draws on it, so the rule narrows nothing else. */
+    @isTest
+    static void leaveBeforeTheExpiryStillDrawsCarryOver() {
+        Leave_Balance__c annual = balance('Annual leave');
+        annual.Carry_Over_Expiry__c = Date.newInstance(testYear(), 6, 30);
+        update annual;
+
+        ApplicationItem__c appl = new ApplicationItem__c(
+            OwnerId = testUserId(), Request_Type__c = 'Annual leave',
+            Term_From__c = Date.newInstance(testYear(), 5, 4),
+            Period_Leave__c = 'All day', Remark__c = 'inside the carry over window',
+            Status__c = 'Approved');
+
+        Test.startTest();
+        insert appl;
+        Test.stopTest();
+
+        System.assertEquals(1, [SELECT Carry_Over_Days_Used__c FROM ApplicationItem__c
+                                WHERE Id = :appl.Id].Carry_Over_Days_Used__c,
+            'May leave draws on carry over that runs to June 30');
+    }
+
+    /*
+     * The whole point of the window, end to end: leave taken only AFTER the expiry must
+     * leave the carry over to lapse, not be credited back as though it had paid for it.
+     *
+     * Before the fix the June 30 sweep read Used_Days__c, saw a day of leave, and handed
+     * the carried days back - turning an expiry into free leave for anyone who took
+     * nothing before July.
+     */
+    @isTest
+    static void carryOverLapsesWhenTheOnlyLeaveFallsAfterTheExpiry() {
+        Leave_Balance__c annual = balance('Annual leave');
+        annual.Carry_Over_Expiry__c = Date.newInstance(testYear(), 6, 30);
+        update annual;
+
+        insert new ApplicationItem__c(
+            OwnerId = testUserId(), Request_Type__c = 'Annual leave',
+            Term_From__c = Date.newInstance(testYear(), 8, 3),
+            Period_Leave__c = 'All day', Remark__c = 'taken after the window',
+            Status__c = 'Approved');
+
+        Test.startTest();
+        LeaveManagementController.runDaily(Date.newInstance(testYear(), 7, 1));
+        Test.stopTest();
+
+        Leave_Balance__c after = balance('Annual leave');
+        System.assertEquals(3, after.Carry_Over_Days__c,
+            'the carried figure is kept as the record of what was carried in');
+        System.assertEquals(4, after.Used_Days__c,
+            'the August day plus the 3 that lapsed unspent - nothing was taken before June 30, '
+            + 'so none of the carry over paid for anything and none of it is forgiven');
+    }
+
+    /*
+     * The splitter must not offer carried days to leave that falls after they lapse.
+     *
+     * The fixture carries 3 days on top of a 12 day entitlement, and
+     * overspendSplitsIntoAnUnpaidRequest above proves a March request may spend all 15.
+     * Stamp an expiry on the row and move the same request to August and only the 12
+     * accrued days are reachable: the carried three lapsed on June 30. Before this, the
+     * splitter offered all 15, annual took days that no longer existed, and the row
+     * settled negative once the June sweep declined to credit them back.
+     */
+    @isTest
+    static void aLongRequestAfterTheExpiryCannotSpendTheCarriedDays() {
+        Leave_Balance__c annual = balance('Annual leave');
+        annual.Carry_Over_Expiry__c = Date.newInstance(testYear(), 6, 30);
+        update annual;
+
+        // August 3 is a Monday in 2026; four weeks is comfortably more than the balance.
+        ApplicationItem__c appl = request('Annual leave', 'All day');
+        appl.Term_From__c = Date.newInstance(testYear(), 8, 3);
+        appl.Term_To__c   = Date.newInstance(testYear(), 8, 28);
+        insert appl;
+
+        System.assertEquals(12, [SELECT Leave_Days__c FROM ApplicationItem__c
+                                 WHERE Id = :appl.Id].Leave_Days__c,
+            'cut to the 12 accrued days, not the 15 that include carry over');
+
+        System.assertEquals('Unpaid leave', [SELECT Request_Type__c FROM ApplicationItem__c
+                                             WHERE Split_From__c = :appl.Id].Request_Type__c,
+            'the days it could not fund became unpaid rather than overdrawing annual');
+
+        Test.startTest();
+        update new ApplicationItem__c(Id = appl.Id, Status__c = 'Approved');
+        Test.stopTest();
+
+        Leave_Balance__c after = balance('Annual leave');
+        System.assertEquals(12, after.Used_Days__c, 'approval spends the accrued days only');
+        System.assertEquals(0, [SELECT Carry_Over_Days_Used__c FROM ApplicationItem__c
+                                WHERE Id = :appl.Id].Carry_Over_Days_Used__c,
+            'and nothing was attributed to the carried days');
+        System.assert(after.Available_Balance__c >= 0, 'the row never goes negative');
+    }
+
     private static Leave_Balance__c balanceRow(Id ownerId, String leaveType, Integer yr,
                                                Decimal entitlement, String accrual, Decimal carryOver) {
         return new Leave_Balance__c(

@@ -20,6 +20,7 @@ export default class LeaveSummaryCard extends NavigationMixin(LightningElement) 
     // @track annualLeave = { availableDays: 0, allocation: 0, accrued: 0, used: 0, carryOver: 0, period: '-' };
     @track annualLeave = { availableDays: 0, allocation: 0, accrued: 0, used: 0, carryOver: '0 / 0', period: '-' };
     @track refreshmentLeave = { availableDays: 0, allocation: 0, used: 0, nextRefresh: '-', daysUntilRefresh: 0 };
+    @track refreshmentSchedule = { hasSchedule: false };
 
     // User Info variables
     @track userAvatar = '';
@@ -130,6 +131,56 @@ export default class LeaveSummaryCard extends NavigationMixin(LightningElement) 
                 daysUntilRefresh: daysUntil
             };
         }
+
+        this.refreshmentSchedule = this.buildRefreshmentSchedule(backendData);
+    }
+
+    /**
+     * @description The Refreshment Leave dates for the footer. Either the request the daily
+     * job raised (with its status), or the first day it will be scheduled on, as an estimate.
+     * Dates are YYYY/MM/DD whatever the user's locale.
+     */
+    buildRefreshmentSchedule(backendData) {
+        const start = backendData.refreshmentStart;
+        if (!start) {
+            return { hasSchedule: false };
+        }
+        const end = backendData.refreshmentEnd;
+        const dates = end && end !== start
+            ? `${this.formatSlashed(start)} – ${this.formatSlashed(end)}`
+            : this.formatSlashed(start);
+
+        if (backendData.refreshmentEstimated) {
+            const diffTime = new Date(start) - new Date();
+            const daysUntil = diffTime > 0 ? Math.ceil(diffTime / (1000 * 60 * 60 * 24)) : 0;
+            return { hasSchedule: true, isEstimate: true, dates, daysUntil };
+        }
+
+        const status = backendData.refreshmentStatus;
+        return {
+            hasSchedule: true,
+            isEstimate: false,
+            dates,
+            status,
+            requestId: backendData.refreshmentRequestId,
+            isDraft: status === 'Draft'
+        };
+    }
+
+    /** '2026-03-16' -> '2026/03/16'. Apex Dates arrive as ISO strings, so no timezone shift. */
+    formatSlashed(isoDate) {
+        return isoDate ? isoDate.replace(/-/g, '/') : '-';
+    }
+
+    handleOpenRefreshmentRequest() {
+        this[NavigationMixin.Navigate]({
+            type: 'standard__recordPage',
+            attributes: {
+                recordId: this.refreshmentSchedule.requestId,
+                objectApiName: 'ApplicationItem__c',
+                actionName: 'view'
+            }
+        });
     }
 
     /**

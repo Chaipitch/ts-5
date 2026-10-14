@@ -1,6 +1,7 @@
 public with sharing class LeaveAccrualService {
 
     private static final String METHOD_MONTHLY = 'Monthly';
+    private static final String METHOD_ANNIVERSARY = 'Anniversary';
 
     // Test seam for the clock. Null means System.today(), which is what production uses.
     @TestVisible private static Date todayOverride;
@@ -43,7 +44,17 @@ public with sharing class LeaveAccrualService {
                                      Decimal entitlementDays, Date asOf) {
         Decimal entitlement = zeroIfNull(entitlementDays);
 
-        if (startDate == null || leaveYear == null || leaveYear > asOf.year()) {
+        if (startDate == null || leaveYear == null) {
+            return 0;
+        }
+        /*
+         * Refreshment is granted ahead of its anniversary month, so a January anniversary
+         * is granted in December onto next year's row. Such a grant is spendable the day it
+         * is made, or the Draft raised with it would find nothing available and be split
+         * off to Annual leave on save. Every other type still earns nothing for a year that
+         * has not started.
+         */
+        if (leaveYear > asOf.year() && !METHOD_ANNIVERSARY.equals(accrualMethod)) {
             return 0;
         }
         if (leaveYear < asOf.year()) {

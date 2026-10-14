@@ -239,7 +239,7 @@ export default class timesheetManagementScreen extends NavigationMixin(Lightning
 
 		this.userId = event.target.value;
 		this.userPath = '/' + event.target.value;
-		this.isNotCurrentUser = this.userId == this.currentUserId;
+		this.isNotCurrentUser = this.userId !== this.currentUserId;
 
 		this.setUserAvatar();
 		this.setDateList();
@@ -713,29 +713,59 @@ export default class timesheetManagementScreen extends NavigationMixin(Lightning
 	@track isFieldVisible = true;               //TSTHHQ 追加
 	@track isRemarksFieldVisible = true;        //TSTHHQ 追加
 
-	openRemarkModal(event) {
-		this.isFieldVisible = false;
-		this.isRemarksFieldVisible = true;
-		if (this.isShowLog) console.log('openRemarkModal Start!');
+	
+		/**
+     * @description Triggered when the user clicks the Edit Icon on the timesheet row.
+     * Sets visibility flags for the modal fields and passes the record ID to openMdl.
+     * @param {Event} event - The DOM click event.
+     */
+    openModal(event) {
+        // Reset visibility flags for the standard edit modal
+        this.isFieldVisible = true;
+        this.isRemarksFieldVisible = false;
+        this.isWorkHourReasonVisible = false;
+        this.isOverTimeReasonVisible = false;
+        
+        if (this.isShowLog) console.log('openModal Start!');
 
-		this.selectedDate = event.target.dataset.id.split(':')[0];
-		this.selectedRecordId = event.target.dataset.id.split(':')[1];
+        // [BEST PRACTICE & FIX] Use currentTarget instead of target.
+        // currentTarget guarantees we read the data-id from the element where the event listener is attached,
+        // avoiding errors if the user clicks the inner SVG graphic of the button.
+        let dataId = event.currentTarget.dataset.id;
+        
+        if (dataId) {
+            this.selectedDate = dataId.split(':')[0];
+            this.selectedRecordId = dataId.split(':')[1];
 
-		this.openMdl(this.selectedDate, this.selectedRecordId);
-	}
+            // Proceed to process and open the modal
+            this.openMdl(this.selectedDate, this.selectedRecordId);
+        } else {
+            console.error('Data ID is missing on the clicked element.');
+        }
+    }
 
-	openModal(event) {
-		this.isFieldVisible = true;
-		this.isRemarksFieldVisible = false;
-		this.isWorkHourReasonVisible = false;
-		this.isOverTimeReasonVisible = false;
-		if (this.isShowLog) console.log('openModal Start!');
+    /**
+     * @description Triggered when the user clicks the Remark Edit Icon.
+     * Shows only the remarks field in the modal.
+     * @param {Event} event - The DOM click event.
+     */
+    openRemarkModal(event) {
+        this.isFieldVisible = false;
+        this.isRemarksFieldVisible = true;
+        
+        if (this.isShowLog) console.log('openRemarkModal Start!');
 
-		this.selectedDate = event.target.dataset.id.split(':')[0];
-		this.selectedRecordId = event.target.dataset.id.split(':')[1];
+        // [BEST PRACTICE & FIX] Ensure currentTarget is used here as well for safety.
+        let dataId = event.currentTarget.dataset.id;
 
-		this.openMdl(this.selectedDate, this.selectedRecordId);
-	}
+        if (dataId) {
+            this.selectedDate = dataId.split(':')[0];
+            this.selectedRecordId = dataId.split(':')[1];
+
+            this.openMdl(this.selectedDate, this.selectedRecordId);
+        }
+    }
+
 
 	openMdl(selDate, selRecordId) {
 		this.setRequireField();
@@ -1089,70 +1119,85 @@ export default class timesheetManagementScreen extends NavigationMixin(Lightning
 	@track mapMarkers = null;
 
 	onMapOpen(event) {
-		if (this.isShowLog) console.log('onMapOpen Start!');
+        if (this.isShowLog) console.log('onMapOpen Start!');
 
-		this.selectedDate = event.target.dataset.id.split(':')[0];
-		this.selectedRecordId = event.target.dataset.id.split(':')[1];
+        // [FIX & BEST PRACTICE] Used currentTarget to safely extract the ID
+        let dataId = event.currentTarget.dataset.id;
+        if (!dataId) return;
 
-		// New record
-		if (this.selectedRecordId == 'undefined') {
-			this.mapMarkers = null;
-		}
-		// Edit record
-		else {
-			var timesheetDataList = [...this.timesheetDataList];
-			var index = timesheetDataList.findIndex((item) => item.timestamp.Id == this.selectedRecordId);
-			this.mapMarkers = [
-				{
-					location: {
-						Latitude: timesheetDataList[index].timestamp.Stamped_Location__c.latitude,
-						Longitude: timesheetDataList[index].timestamp.Stamped_Location__c.longitude
-					}
-				}
-			];
-		}
-		this.isShowMap = true;
-	}
+        this.selectedDate = dataId.split(':')[0];
+        this.selectedRecordId = dataId.split(':')[1];
+
+        // If it's a new record with no ID yet, we cannot show a location.
+        if (this.selectedRecordId == 'undefined') {
+            this.mapMarkers = null;
+        }
+        // If it's an existing record, find its coordinates in the timesheet data array.
+        else {
+            var timesheetDataList = [...this.timesheetDataList];
+            var index = timesheetDataList.findIndex((item) => item.timestamp.Id == this.selectedRecordId);
+            
+            // Set up the mapMarkers array required by the lightning-map component
+            this.mapMarkers = [
+                {
+                    location: {
+                        Latitude: timesheetDataList[index].timestamp.Stamped_Location__c.latitude,
+                        Longitude: timesheetDataList[index].timestamp.Stamped_Location__c.longitude
+                    }
+                }
+            ];
+        }
+        
+        // Change state to true, triggering the HTML <template if:true={isShowMap}> to render
+        this.isShowMap = true;
+    }
 
 	onMapCancel() {
-		this.mapMarkers = null;
-		this.isShowMap = false;
-	}
+        this.mapMarkers = null;
+        this.isShowMap = false;
+    }
 
 	/////////////////   ApplicationItem Area   /////////////////////
 	@track leaveRecordId = '';
 
 	openViewAIModal(event) {
-		if (this.isShowLog) console.log('openViewAIModal Start!');
+        if (this.isShowLog) console.log('openViewAIModal Start!');
 
-		this.leaveRecordId = event.target.dataset.id;
-		this[NavigationMixin.Navigate]({
-			type: 'standard__recordPage',
-			attributes: {
-				recordId: this.leaveRecordId,
-				actionName: 'view'
-			}
-		});
-	}
+        // [FIX & BEST PRACTICE] Used currentTarget
+        this.leaveRecordId = event.currentTarget.dataset.id;
+        
+        // Uses NavigationMixin to redirect to the record page without hardcoding URLs
+        this[NavigationMixin.Navigate]({
+            type: 'standard__recordPage',
+            attributes: {
+                recordId: this.leaveRecordId,
+                actionName: 'view'
+            }
+        });
+    }
 
 	/**
      * @description Handles the icon click to open the ApplicationItem Creation Modal.
      * @param {Event} event - UI Click Event containing target date.
      */
-    openCreateAIModal(event) {
+	openCreateAIModal(event) {
         if (this.isShowLog) console.log('openCreateAIModal Start!');
 
-        this.selectedDate = event.target.dataset.id.split(':')[0];
-        this.selectedRecordId = event.target.dataset.id.split(':')[1];
+        // [FIX & BEST PRACTICE] Used currentTarget to ensure stability
+        let dataId = event.currentTarget.dataset.id;
+        if (!dataId) return;
 
-        // Open the pop-up modal directly without executing NavigationMixin redirect
+        this.selectedDate = dataId.split(':')[0];
+        this.selectedRecordId = dataId.split(':')[1];
+
+        // Changes state to open the child component <c-application-item-new-action>
         this.isNewAppModalOpen = true;
     }
 
     /**
      * @description Closes the ApplicationItem New Modal window.
      */
-    handleAppClose() {
+	handleAppClose() {
         this.isNewAppModalOpen = false;
     }
 
@@ -1160,14 +1205,14 @@ export default class timesheetManagementScreen extends NavigationMixin(Lightning
      * @description Handles post-creation success from Child LWC.
      * Closes modal and refreshes the timesheet table.
      */
-    handleAppSuccess() {
+	handleAppSuccess() {
         this.isNewAppModalOpen = false;
         this.setDateList(); // Refreshes the 31-day timesheet table
     }
 
-	onLeaveCancel() {
-		this.isShowLeave = false;
-	}
+    onLeaveCancel() {
+        this.isShowLeave = false;
+    }
 
 
 	

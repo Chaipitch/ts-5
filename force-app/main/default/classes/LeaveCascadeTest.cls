@@ -354,32 +354,107 @@ private class LeaveCascadeTest {
             'unpaid grants as it is used, so it never reads negative');
     }
 
-    @isTest
-    static void anOverdrawIsRefusedEvenWhenNothingSplitsIt() {
+    private static void useRefreshWithoutOverflow() {
         ApplicationItemTriggerLogic.policyOverride = new List<Leave_Type_Policy__mdt>{
             new Leave_Type_Policy__mdt(Leave_Type__c = REFRESH, Active__c = true,
                 Deducts_Balance__c = true)   // no Overflow_To__c: nothing will split it
         };
+    }
 
-        ApplicationItem__c appl = raise(REFRESH, 10, 'Draft');
+    private static String refusalOf(ApplicationItem__c appl, Boolean isInsert) {
+        try {
+            if (isInsert) {
+                insert appl;
+            } else {
+                update appl;
+            }
+        } catch (DmlException e) {
+            return e.getDmlMessage(0);
+        }
+        return null;
+    }
+
+    /*
+     * Spent behind the request's back after it was saved, so only the deduction on
+     * approval can catch it.
+     */
+    @isTest
+    static void anOverdrawIsRefusedEvenWhenNothingSplitsIt() {
+        useRefreshWithoutOverflow();
+
+        ApplicationItem__c appl = raise(REFRESH, 3, 'Draft');
         insert appl;
-        System.assertEquals(0, continuationsOf(appl.Id).size(), 'nothing split it, as configured');
+        Leave_Balance__c refreshRow = balance(REFRESH);
+        refreshRow.Used_Days__c = 2;
+        update refreshRow;
 
         Test.startTest();
-        String message;
-        try {
-            update new ApplicationItem__c(Id = appl.Id, Status__c = 'Approved');
-            System.assert(false, 'ten days against three must not be approved');
-        } catch (DmlException e) {
-            message = e.getDmlMessage(0);
-        }
+        String message = refusalOf(new ApplicationItem__c(Id = appl.Id, Status__c = 'Approved'), false);
         Test.stopTest();
 
-        System.assert(message.contains('only 3'), 'the refusal names what is left: ' + message);
+        System.assertNotEquals(null, message, 'three days against one must not be approved');
+        System.assert(message.contains('only 1'), 'the refusal names what is left: ' + message);
         System.assert(message.contains('Shorten it'),
             'and offers the remedy for a type with nowhere to overflow: ' + message);
-        System.assertEquals(0, balance(REFRESH).Used_Days__c, 'nothing was taken');
-        System.assertEquals(3, balance(REFRESH).Available_Balance__c, 'and nothing went negative');
+        System.assertEquals(2, balance(REFRESH).Used_Days__c, 'nothing more was taken');
+    }
+
+    // ------------------------------------------------- nowhere to overflow: refused
+
+    /* With nowhere to put the extra days, the save is refused instead of split. */
+    @isTest
+    static void aRequestPastTheBalanceIsRefusedWhenNothingCanSplitIt() {
+        useRefreshWithoutOverflow();
+
+        Test.startTest();
+        String message = refusalOf(raise(REFRESH, 5, 'Draft'), true);
+        Test.stopTest();
+
+        System.assertNotEquals(null, message, 'five days against three must not be saved');
+        System.assert(message.contains('for 5 working day(s)'), message);
+        System.assert(message.contains('covers only 3 (up to'), message);
+        System.assertEquals(0, [SELECT COUNT() FROM ApplicationItem__c], 'and nothing was created');
+    }
+
+    /* The expiry limits the request even with days to spare, and weekends cost nothing. */
+    @isTest
+    static void aRequestPastTheExpiryIsRefusedWhenNothingCanSplitIt() {
+        useRefreshWithoutOverflow();
+        setEntitlement(REFRESH, 10);
+        List<Date> days = workdays(5);
+        Leave_Balance__c refreshRow = balance(REFRESH);
+        refreshRow.Granted_On__c = days[0].addDays(-7);
+        refreshRow.Expiry_Date__c = days[1];
+        update refreshRow;
+
+        Test.startTest();
+        String message = refusalOf(raise(REFRESH, 5, 'Draft'), true);
+        Test.stopTest();
+
+        System.assertNotEquals(null, message, 'days after the expiry must not be saved');
+        System.assert(message.contains('covers only 2'), message);
+        System.assert(message.contains('10 day(s) left'), message);
+        System.assertEquals(0, [SELECT COUNT() FROM ApplicationItem__c]);
+    }
+
+    /* A request the balance covers is saved untouched; widening it later is refused. */
+    @isTest
+    static void wideningAFundedRequestPastTheBalanceIsRefused() {
+        useRefreshWithoutOverflow();
+        ApplicationItem__c appl = raise(REFRESH, 3, 'Draft');
+        insert appl;
+        System.assertEquals(3, reload(appl.Id).Leave_Days__c, 'three days fit three days');
+
+        Test.startTest();
+        String message = refusalOf(new ApplicationItem__c(
+            Id = appl.Id, Term_To__c = workdays(6)[5]), false);
+        Test.stopTest();
+
+        System.assertNotEquals(null, message, 'six days against three must not be saved');
+        ApplicationItem__c after = reload(appl.Id);
+        System.assertEquals(workdays(3)[2], after.Term_To__c, 'the dates stand as they were');
+        System.assertEquals(REFRESH, after.Request_Type__c);
+        System.assertEquals(0, continuationsOf(appl.Id).size(), 'and nothing was split off');
     }
 
     /* With a chain configured the refusal points at the split instead. */
