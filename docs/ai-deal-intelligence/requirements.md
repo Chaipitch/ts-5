@@ -15,7 +15,7 @@ Status: **Built and tested in the sandbox** (8 Oct 2026). Decisions in §7; open
 
 **In scope (this branch):** the Gemini integration only.
 
-1. **Task 1 — Backfill:** one-time batch over the past 1 year of MOMs (top priority — the demo needs it).
+1. **Task 1 — Retry run:** a batch that re-processes meetings whose analysis failed. *(Originally a one-time backfill of the past year; dropped for Production — D16.)*
 2. **Task 2 — Real-time:** analyse each new MOM when it is created.
 3. Filter: only real MOMs (§3.4).
 4. One call per MOM returning all 33 items as one JSON.
@@ -91,7 +91,7 @@ Numbering follows the Gemini prompt (1–33). The sheet's *Obj&Fields* tab numbe
 
 ### 3.1 Processing patterns
 
-- **FR-1 Backfill (Task 1).** One-time batch over qualifying MOMs from the **past 1 year**: send each one to Gemini, parse the JSON, merge into the Opportunity, set `AI_Processed__c = true`. Must be Batch Apex (async) because of callout limits. The sheet also flags the Gemini **per-day request limit** as a concern (§4).
+- **FR-1 Retry run (was: backfill, D16).** Past meetings are **not** processed in Production. The batch (`runBackfill()`, the rate-limit retry and the nightly run) takes only meetings flagged **`IsFailed__c = true`**, of any meeting date: send each to Gemini, merge, tick `AI_Processed__c`, clear `IsFailed__c`. A failed call, a deal that won't save, or a meeting held back after a refusal sets `IsFailed__c = true`.
 - **FR-2 Real-time (Task 2).** When a MOM is **created**, do the same steps asynchronously. (Edits to an existing MOM do not trigger analysis.)
 - **FR-2a Process exactly once (sheet Rule D, added later).** A MOM is analysed only once; editing it afterwards never re-runs the analysis or updates the Opportunity again. Met by the after-insert trigger plus `AI_Processed__c`. A MOM that was never analysed successfully (failed, or saved too short and lengthened later) can still get its first analysis from the backfill.
 
@@ -194,7 +194,8 @@ Event `Type` values in the org: Web Meeting, On-site / Visit, Dinner / Event, Di
 | D12 | 429 handling | Retry after an hour; held-back deals first, then the rest still pending | Team |
 | D14 | Filter | **Type + length only; Subject not checked** (`AI_MOM_Subjects` = `*`). The manager's memo never asked for a Subject check, the BA's Query doesn't use one, and it silently skipped real meetings whose rep typed their own Subject (e.g. "Quick catch-up") or used "Web Meeting - 5 …". | Team (12 Oct 2026) |
 | D13 | 429 wait | Short wait when Gemini asks for one (per-minute limit: 2 min), the hour only for a long or unstated wait — an hour per ~15 meetings made a 1,000-meeting backfill take days on the free tier | Team |
-| D15 | Logs | One log: `AI_Analysis_Log__c` merged into `Gemini_Opty_Log__c` (Status gains Partial / Parse Error / Save Failed next to Success / Fail; new Changes field); `AI_Analysis_Log__c` deleted | Team (13 Oct 2026) |
+| D15 | Logs | One log: `AI_Analysis_Log__c` merged into `Gemini_Opty_Log__c` (Status gains Partial / Parse Error / Save Failed next to Success / Fail; a Changes field was added and later dropped, D16); `AI_Analysis_Log__c` deleted | Team (13 Oct 2026) |
+| D16 | Past meetings / retries | **No backfill of past meetings in Production.** The batch only retries meetings flagged `IsFailed__c` (new Event checkbox); success clears the flag. Instant process unchanged (create only). `Changes__c` on Gemini Opty Log is not deployed (removed). | Team (14 Oct 2026) |
 
 ## 8. Open items
 

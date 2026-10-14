@@ -7,11 +7,6 @@
     </externalCredentialPrincipalAccesses>
     <fieldPermissions>
         <editable>false</editable>
-        <field>Gemini_Opty_Log__c.Changes__c</field>
-        <readable>true</readable>
-    </fieldPermissions>
-    <fieldPermissions>
-        <editable>false</editable>
         <field>Gemini_Opty_Log__c.Error_Message__c</field>
         <readable>true</readable>
     </fieldPermissions>

@@ -5,7 +5,8 @@
  * and JSON-only output. Every callout runs before any DML, as Salesforce requires.
  * The answers are then merged oldest meeting first, so the insight fields end on the
  * latest one. A meeting is ticked AI_Processed__c only once its Opportunity has
- * saved; anything that failed stays unticked and is picked up again on the next run.
+ * saved; anything that failed stays unticked and is flagged IsFailed__c, which is what
+ * the scheduled retry looks for. A meeting that later succeeds has the flag cleared.
  * Every call to Gemini leaves one Gemini_Opty_Log__c row: status, what changed on the
  * deal, errors and warnings, Gemini's JSON (or Google's error), model and tokens.
  *
@@ -130,6 +131,7 @@ public without sharing class DealIntelligenceService {
         }
 
         Map<Id, String> saveErrors = mergeAndSave(sent);
+        flagFailed(summary.deferred);
         for (Call c : sent) {
             if (c.busy && !summary.busy.contains(c.mom.Id)) {
                 summary.busy.add(c.mom.Id);
@@ -304,21 +306,43 @@ public without sharing class DealIntelligenceService {
         return result;
     }
 
+    /**
+     * Meetings never sent because Gemini had already refused one in this run. They are
+     * flagged like a failure, so the scheduled retry (which only takes failed meetings)
+     * picks them up even if no follow-up job does.
+     */
+    public static void flagFailed(List<Id> eventIds) {
+        if (eventIds == null || eventIds.isEmpty()) {
+            return;
+        }
+        List<Event> flags = new List<Event>();
+        for (Id eventId : eventIds) {
+            flags.add(new Event(Id = eventId, IsFailed__c = true));
+        }
+        Database.update(flags, false, AccessLevel.SYSTEM_MODE);
+    }
+
     private static void tickAndLog(List<Call> calls, Map<Id, String> saveErrors, String model, Summary summary) {
         List<Event> ticks = new List<Event>();
         List<Call> ticked = new List<Call>();
         for (Call c : calls) {
             if (c.answer == null) {
+                // Failed: flagged for the scheduled retry, not ticked as processed.
+                ticks.add(new Event(Id = c.mom.Id, IsFailed__c = true));
+                ticked.add(c);
                 continue;
             }
             String saveError = saveErrors.get(c.mom.WhatId);
             if (saveError != null) {
                 c.fail(SAVE_FAILED, saveError);
+                ticks.add(new Event(Id = c.mom.Id, IsFailed__c = true));
+                ticked.add(c);
                 continue;
             }
             c.details.addAll(c.merged.warnings);
             c.status = c.merged.warnings.isEmpty() ? SUCCESS : PARTIAL;
-            ticks.add(new Event(Id = c.mom.Id, AI_Processed__c = true));
+            // Processed; clears the flag if an earlier attempt had failed.
+            ticks.add(new Event(Id = c.mom.Id, AI_Processed__c = true, IsFailed__c = false));
             ticked.add(c);
         }
 
@@ -326,7 +350,7 @@ public without sharing class DealIntelligenceService {
         for (Integer i = 0; i < tickResults.size(); i++) {
             if (!tickResults[i].isSuccess()) {
                 // The Opportunity is saved, but the meeting will be analysed again next run.
-                ticked[i].details.add('Could not tick AI_Processed__c: ' + errorText(tickResults[i].getErrors()));
+                ticked[i].details.add('Could not update Event tracking flags: ' + errorText(tickResults[i].getErrors()));
             }
         }
 
@@ -360,7 +384,6 @@ public without sharing class DealIntelligenceService {
             Input_Token__c = c.inputTokens,
             Output_Token__c = c.outputTokens,
             Token_Used__c = tokens,
-            Changes__c = changes.isEmpty() ? null : String.join(changes, '\n').left(32768),
             Error_Message__c = c.details.isEmpty() ? null : String.join(c.details, '\n').left(32768),
             JSON_Log__c = c.response == null ? String.join(c.details, '\n').left(131072) : c.response.left(131072)
         );

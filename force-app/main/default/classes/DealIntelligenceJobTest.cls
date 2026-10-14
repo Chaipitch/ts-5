@@ -63,7 +63,7 @@ private class DealIntelligenceJobTest {
         insert opps;
         // Retry tests run the job directly, and a callout can't follow DML in the same
         // test, so their meeting is made here.
-        Event retry = mom(LONG_TEXT, 1);
+        Event retry = failedMom(LONG_TEXT, 1);   // failed once, so the retry run takes it
         retry.WhatId = opps[1].Id;
         insert retry;
     }
@@ -100,6 +100,12 @@ private class DealIntelligenceJobTest {
             StartDateTime = starts,
             EndDateTime = starts.addHours(1)
         );
+    }
+
+    private static Event failedMom(String description, Integer daysAgo) {
+        Event e = mom(description, daysAgo);
+        e.IsFailed__c = true;
+        return e;
     }
 
     private static Integer ticked() {
@@ -153,29 +159,28 @@ private class DealIntelligenceJobTest {
     // ---- Backfill
 
     @isTest
-    static void backfillTakesThePastYearOnly() {
+    static void retryRunTakesOnlyFailedMeetings() {
         GeminiMock mock = new GeminiMock();
         Test.setMock(HttpCalloutMock.class, mock);
         DealIntelligenceJob.realTimeOn = false;
-        // Out of the way: a test batch runs one chunk only.
-        update new Event(Id = retryMeeting()[0], AI_Processed__c = true);
-        insert new List<Event>{
-            mom(LONG_TEXT, 30),
-            mom(LONG_TEXT, 200),
-            mom(LONG_TEXT, 400),               // older than a year
-            mom('called, no answer', 10)       // too short
-        };
+        update new Event(Id = retryMeeting()[0], IsFailed__c = false);   // out of the way
+        Event failedOld = failedMom(LONG_TEXT, 400);       // failed earlier; any meeting date
+        Event neverTried = mom(LONG_TEXT, 30);             // past meeting, never sent: left alone
+        Event failedShort = failedMom('called, no answer', 10);
+        insert new List<Event>{ failedOld, neverTried, failedShort };
 
         Test.startTest();
         DealIntelligenceJob.runBackfill();
         Test.stopTest();
 
-        System.assertEquals(2, ticked());
+        System.assertEquals(1, mock.calls, 'only the failed meeting with a real note is sent');
+        Event done = [SELECT AI_Processed__c, IsFailed__c FROM Event WHERE Id = :failedOld.Id WITH SYSTEM_MODE];
+        System.assertEquals(true, done.AI_Processed__c);
+        System.assertEquals(false, done.IsFailed__c, 'the flag is cleared once it succeeds');
+        System.assertEquals(false, [SELECT AI_Processed__c FROM Event WHERE Id = :neverTried.Id WITH SYSTEM_MODE].AI_Processed__c,
+            'past meetings that never failed are not processed');
         System.assertEquals(60, theOpp().Customer_Seriousness_Score__c);
-        System.assertEquals(2, [SELECT COUNT() FROM Gemini_Opty_Log__c WHERE Opportunity__r.Name = 'AIDI Job' WITH SYSTEM_MODE]);
     }
-
-    // ---- Retry when Gemini is busy
 
     @isTest
     static void busyMeetingIsQueuedAgainAfterADelay() {
@@ -272,7 +277,7 @@ private class DealIntelligenceJobTest {
     @isTest
     static void dealsHeldBackByRateLimitGoFirst() {
         DealIntelligenceJob.realTimeOn = false;
-        insert new List<Event>{ mom(LONG_TEXT, 20), mom(LONG_TEXT, 10) };
+        insert new List<Event>{ failedMom(LONG_TEXT, 20), failedMom(LONG_TEXT, 10) };
         Id retryId = retryMeeting()[0];
         insert new Gemini_Opty_Log__c(
             Event_Id__c = retryId,
@@ -291,7 +296,7 @@ private class DealIntelligenceJobTest {
         GeminiMock mock = new GeminiMock(429);
         Test.setMock(HttpCalloutMock.class, mock);
         DealIntelligenceJob.realTimeOn = false;
-        insert new List<Event>{ mom(LONG_TEXT, 20), mom(LONG_TEXT, 10) };
+        insert new List<Event>{ failedMom(LONG_TEXT, 20), failedMom(LONG_TEXT, 10) };
 
         Test.startTest();
         DealIntelligenceJob.runBackfill();

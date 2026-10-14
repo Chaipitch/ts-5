@@ -81,11 +81,14 @@ On **AIDI Test 2 - Merge Rules**, log meetings A, B, C from test-data.md §2 one
 
 For any analysed meeting:
 
-- [ ] 5.1 **Gemini Opty Log**, one row per call: Status Success (or Partial, with Error Message saying why), Event Id, Model, Input / Output / Total tokens, Changes listing each field, JSON Log = one JSON with 33 keys and no Markdown table.
+- [ ] 5.1 **Gemini Opty Log**, one row per call: Status Success (or Partial, with Error Message saying why), Event Id, Model, Input / Output / Total tokens, JSON Log = one JSON with 33 keys and no Markdown table.
 - [ ] 5.2 On a failure: Status Fail / Parse Error / Save Failed, Error Message says why, JSON Log holds Google's error (or the answer that wasn't JSON).
 - [ ] 5.3 A retried meeting has one row per attempt; the last one is the outcome.
 
-## 6. Batch (backfill)
+## 6. Batch (retry run — failed meetings only, D16)
+
+The batch only takes meetings with `IsFailed__c = true`. To test it, make a call fail first (e.g. a wrong `GeminiMODEL`, §7.1), check the Event shows **IsFailed** ✅ and **AI Processed** ☐, put the model back, then run it. Afterwards the Event shows **AI Processed** ✅ and **IsFailed** ☐. Past meetings that never failed must stay untouched.
+
 
 1. Run the reset script (`DRY_RUN = false`) so the AIDI Test 3 / 4 and Gemini MOM meetings wait again.
 2. Run in Anonymous Apex:

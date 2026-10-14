@@ -42,10 +42,10 @@ Branch: `feature/ai-deal-intelligence`
 
 Two ways it runs — same filter, same Gemini call, same rules:
 
-| | Batch (backfill) | Instant (real-time) |
+| | Batch (retry run) | Instant (real-time) |
 |---|---|---|
 | Starts | `DealIntelligenceJob.runBackfill();` or the rate-limit retry | A rep saves a new meeting |
-| Takes | Every unticked MOM of the past year, deal by deal, oldest first | The meetings just saved |
+| Takes | Only meetings that **failed** (`IsFailed__c = true`), any date, deal by deal, oldest first — past meetings that were never sent are **not** processed (D16) | The meetings just saved (create only) |
 | Runs as | Whoever started it | The rep (needs the permission set) |
 
 When Gemini refuses a call: **503 (busy)** → tried again 2 minutes later, up to 3 times; **429 (rate limit / quota)** → everything pauses and one scheduled retry runs **2 minutes later** when Gemini asks for a short wait (a per-minute limit) or **an hour later** when it asks for a long one or doesn't say (a used-up daily quota), doing the held-back deals first, then the rest.
@@ -66,12 +66,13 @@ Field list, filter values, rules and prompt come from the BA sheet [Gemini Opp](
 
 ## Logs
 
+A meeting whose call fails is flagged **`IsFailed__c = true`** on the Event (and not ticked); the retry run clears the flag when it succeeds.
+
 Every call to Gemini writes one row to **Gemini Opty Log** (`Gemini_Opty_Log__c`, the team's object) — so a meeting that was retried has several rows; the last one is the outcome:
 
 | Field | What it holds |
 |---|---|
 | Status | **Success**; **Partial** (saved, some values skipped or cut); **Fail** (call refused or failed — e.g. HTTP 429/503/500, timeout); **Parse Error** (answer wasn't JSON); **Save Failed** (deal wouldn't save) |
-| Changes | Each Opportunity field this meeting changed, `field = new value` |
 | Error Message | Errors and warnings (e.g. `HTTP 429 … (Gemini asks to wait 17 s)`, `"Cloudee" is not a picklist value, dropped`) |
 | JSON Log | Gemini's JSON answer, or Google's error |
 | Opportunity, Event Id, Model | Which deal, which meeting, which model |
@@ -79,7 +80,7 @@ Every call to Gemini writes one row to **Gemini Opty Log** (`Gemini_Opty_Log__c`
 
 (Until 13 Oct 2026 there was also an `AI_Analysis_Log__c`; it was merged into this one, D15.)
 
-## Run the backfill
+## Run the retry run by hand
 
 ```apex
 DealIntelligenceJob.runBackfill();

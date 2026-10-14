@@ -1,8 +1,9 @@
 /**
  * Runs AI Deal Intelligence in the background, in the two ways the BA asked for:
  *
- *   Backfill   (this class, Batchable) every unprocessed meeting of the past year:
- *              DealIntelligenceJob.runBackfill();
+ *   Retry run  (this class, Batchable) every meeting that failed (IsFailed__c), of any
+ *              date: DealIntelligenceJob.runBackfill(). Meetings that were never sent
+ *              are not picked up — past meetings are deliberately not processed.
  *   Real-time  (inner class RealTime, Queueable) the meetings just logged, enqueued by
  *              the Event trigger. Inner, because Salesforce won't let one class be
  *              both Queueable and Batchable.
@@ -18,7 +19,7 @@
  *                            for a short wait (a per-minute limit), an hour later when
  *                            it asks for a long one or doesn't say (a used-up daily
  *                            quota). It runs the backfill with the deals that hit the
- *                            limit first, then everything else still unticked, and
+ *                            limit first, then every other failed meeting, and
  *                            pauses again if Gemini is still refusing.
  *
  * Nightly safety net (inner class Nightly, Schedulable): the backfill every night at
@@ -123,7 +124,9 @@ public without sharing class DealIntelligenceJob
 
             DealIntelligenceService.Summary summary = DealIntelligenceService.analyse(now);
             if (summary.rateLimited) {
-                // The rest stays unticked; the rate-limit retry's backfill picks it all up.
+                // The rest waits for the rate-limit retry, which only takes failed meetings,
+                // so the ones this job never reached are flagged too.
+                DealIntelligenceService.flagFailed(later);
                 scheduleRateLimitRetry(waitMinutes(summary.rateLimitWaitSeconds));
                 return;
             }
@@ -243,10 +246,10 @@ public without sharing class DealIntelligenceJob
         List<Event> pending = [
             SELECT Id, WhatId, Subject
             FROM Event
-            WHERE ActivityDate = LAST_N_DAYS:365
-              AND What.Type = 'Opportunity'
+            WHERE What.Type = 'Opportunity'
               AND Type IN :types
               AND AI_Processed__c = false
+              AND IsFailed__c = true
             WITH SYSTEM_MODE
             ORDER BY WhatId, StartDateTime, CreatedDate
             LIMIT 50000

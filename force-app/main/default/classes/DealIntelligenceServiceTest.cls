@@ -131,6 +131,8 @@ private class DealIntelligenceServiceTest {
             mom(opps[5].Id, 'MOM-WAITING' + FILLER, -1),
             mom(opps[6].Id, 'MOM-QUOTA' + FILLER, -1)
         };
+        // ALPHA failed once before, so its success must clear the flag.
+        update new Event(Id = [SELECT Id FROM Event WHERE WhatId = :opps[0].Id].Id, IsFailed__c = true);
     }
 
     private static String firstValue(Schema.DescribeFieldResult describe) {
@@ -170,7 +172,7 @@ private class DealIntelligenceServiceTest {
 
     private static List<Gemini_Opty_Log__c> logsOf(String oppName) {
         return [
-            SELECT Status__c, Model__c, Input_Token__c, Output_Token__c, Token_Used__c, JSON_Log__c, Changes__c, Error_Message__c, Event_Id__c
+            SELECT Status__c, Model__c, Input_Token__c, Output_Token__c, Token_Used__c, JSON_Log__c, Error_Message__c, Event_Id__c
             FROM Gemini_Opty_Log__c
             WHERE Opportunity__r.Name = :oppName
             WITH SYSTEM_MODE
@@ -210,7 +212,9 @@ private class DealIntelligenceServiceTest {
         System.assertEquals(70, o.Customer_Seriousness_Score__c);
         System.assertEquals('Budget and schedule are explicit.', o.Reason_for_Seriousness_Score__c);
 
-        System.assertEquals(true, [SELECT AI_Processed__c FROM Event WHERE Id = :ids[0] WITH SYSTEM_MODE].AI_Processed__c);
+        Event saved = [SELECT AI_Processed__c, IsFailed__c FROM Event WHERE Id = :ids[0] WITH SYSTEM_MODE];
+        System.assertEquals(true, saved.AI_Processed__c);
+        System.assertEquals(false, saved.IsFailed__c, 'an earlier failure is cleared on success');
 
         Gemini_Opty_Log__c log = logsOf('AIDI Single')[0];
         System.assert(log.Status__c == 'Success' || log.Status__c == 'Partial', log.Status__c);
@@ -218,7 +222,6 @@ private class DealIntelligenceServiceTest {
         System.assertEquals(2500, log.Input_Token__c);
         System.assertEquals(400, log.Output_Token__c);
         System.assert(String.isNotBlank(log.Model__c));
-        System.assert(log.Changes__c.contains('Explicit_Initial_Budget__c = Implementation cost 3M THB'), log.Changes__c);
         System.assert(log.JSON_Log__c.contains('Implementation cost 3M THB'));
 
         System.assertEquals(1, summary.analysed);
@@ -309,6 +312,8 @@ private class DealIntelligenceServiceTest {
         System.assertEquals(null, o.Explicit_Initial_Budget__c);
         System.assertEquals(0, [SELECT COUNT() FROM Event WHERE What.Name = 'AIDI Http Error' AND AI_Processed__c = true WITH SYSTEM_MODE],
             'left unticked so the next run tries again');
+        System.assertEquals(1, [SELECT COUNT() FROM Event WHERE What.Name = 'AIDI Http Error' AND IsFailed__c = true WITH SYSTEM_MODE],
+            'flagged for the scheduled retry');
 
         Gemini_Opty_Log__c log = logsOf('AIDI Http Error')[0];
         System.assertEquals('Fail', log.Status__c);
@@ -371,6 +376,8 @@ private class DealIntelligenceServiceTest {
         System.assert(!summary.rateLimited, 'a 503 is busy, not rate-limited');
         System.assertEquals(1, logsOf('AIDI Busy').size(), 'the held-back meeting has no log');
         System.assertEquals(0, [SELECT COUNT() FROM Event WHERE What.Name = 'AIDI Busy' AND AI_Processed__c = true WITH SYSTEM_MODE]);
+        System.assertEquals(2, [SELECT COUNT() FROM Event WHERE What.Name = 'AIDI Busy' AND IsFailed__c = true WITH SYSTEM_MODE],
+            'the refused meeting and the held-back one are both flagged for the scheduled retry');
     }
 
     @isTest
