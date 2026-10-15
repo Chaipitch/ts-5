@@ -53,25 +53,42 @@ private class DealIntelligenceJobTest {
         DealIntelligenceJob.realTimeOn = false;
         List<Opportunity> opps = new List<Opportunity>();
         for (String name : new List<String>{ 'AIDI Job', 'AIDI Retry' }) {
-            opps.add(new Opportunity(
+            opps.add(withCreateRequirements(new Opportunity(
                 Name = name,
                 StageName = firstValue(Opportunity.StageName.getDescribe()),
                 Your_Win_Confidence__c = firstValue(Opportunity.Your_Win_Confidence__c.getDescribe()),
                 CloseDate = Date.today().addMonths(3)
-            ));
+            )));
         }
-        insert opps;
+        insert as system opps;
         // Retry tests run the job directly, and a callout can't follow DML in the same
         // test, so their meeting is made here.
         Event retry = failedMom(LONG_TEXT, 1);   // failed once, so the retry run takes it
         retry.WhatId = opps[1].Id;
-        insert retry;
+        insert as system retry;
     }
 
     private static List<Id> retryMeeting() {
         return new List<Id>(new Map<Id, Event>([
             SELECT Id FROM Event WHERE What.Name = 'AIDI Retry' WITH SYSTEM_MODE
         ]).keySet());
+    }
+
+    /*
+     * What Production asks of a new Opportunity on top of the required fields: an
+     * Amount, a Lead Source (any but Partners, which also wants a Prime Partner) and
+     * the CredenData screenshot note.
+     */
+    private static Opportunity withCreateRequirements(Opportunity opp) {
+        opp.Amount = 100000;
+        opp.Update_CredenData_Screen_shot__c = 'Test data';
+        for (Schema.PicklistEntry entry : Opportunity.LeadSource.getDescribe().getPicklistValues()) {
+            if (entry.isActive() && entry.getValue() != 'Partners') {
+                opp.LeadSource = entry.getValue();
+                break;
+            }
+        }
+        return opp;
     }
 
     private static String firstValue(Schema.DescribeFieldResult describe) {
@@ -119,17 +136,65 @@ private class DealIntelligenceJobTest {
         Test.setMock(HttpCalloutMock.class, new GeminiMock());
 
         Test.startTest();
-        insert mom(LONG_TEXT, 0);
+        insert as system mom(LONG_TEXT, 0);
         Test.stopTest();
 
         System.assertEquals(1, ticked());
         System.assertEquals(60, theOpp().Customer_Seriousness_Score__c);
     }
 
+    private static Event processedMom() {
+        Event e = mom(LONG_TEXT, 1);
+        e.AI_Processed__c = true;   // analysed already, so inserting it queues nothing
+        insert as system e;
+        return e;
+    }
+
+    private static Integer jobsStarted() {
+        return [SELECT COUNT() FROM AsyncApexJob WHERE ApexClass.Name = 'DealIntelligenceJob' WITH SYSTEM_MODE];
+    }
+
+    @isTest
+    static void editingTheNotesAnalysesTheMeetingAgain() {
+        Event e = processedMom();
+        Test.setMock(HttpCalloutMock.class, new GeminiMock());
+
+        Test.startTest();
+        update as system new Event(Id = e.Id, Description = LONG_TEXT + ' They also asked for a demo next week.');
+        Test.stopTest();
+
+        System.assertEquals(1, jobsStarted(), 'one job, and its own tick queued no other');
+        System.assertEquals(1, ticked(), 'ticked again once analysed');
+        System.assertEquals(60, theOpp().Customer_Seriousness_Score__c, 'the new notes reached the deal');
+    }
+
+    @isTest
+    static void anEditThatLeavesTheNotesAloneCallsNothing() {
+        Event e = processedMom();
+
+        Test.startTest();
+        update as system new Event(Id = e.Id, Location = 'Head office');
+        Test.stopTest();
+
+        System.assertEquals(0, jobsStarted());
+        System.assertEquals(1, ticked(), 'still counted as analysed');
+    }
+
+    @isTest
+    static void notesEditedTooShortAreNotSent() {
+        Event e = processedMom();
+
+        Test.startTest();
+        update as system new Event(Id = e.Id, Description = 'called, no answer');
+        Test.stopTest();
+
+        System.assertEquals(0, jobsStarted(), 'below the minimum length, as for a new meeting');
+    }
+
     @isTest
     static void shortNoteDoesNotStartAJob() {
         Test.startTest();
-        insert mom('called, no answer', 0);
+        insert as system mom('called, no answer', 0);
         Test.stopTest();
 
         System.assertEquals(0, [
@@ -147,7 +212,7 @@ private class DealIntelligenceJobTest {
         }
 
         Test.startTest();
-        insert moms;
+        insert as system moms;
         Test.stopTest();
 
         // Tests can't chain jobs, so only the first job's share is done here; outside
@@ -163,11 +228,11 @@ private class DealIntelligenceJobTest {
         GeminiMock mock = new GeminiMock();
         Test.setMock(HttpCalloutMock.class, mock);
         DealIntelligenceJob.realTimeOn = false;
-        update new Event(Id = retryMeeting()[0], IsFailed__c = false);   // out of the way
+        update as system new Event(Id = retryMeeting()[0], IsFailed__c = false);   // out of the way
         Event failedOld = failedMom(LONG_TEXT, 400);       // failed earlier; any meeting date
         Event neverTried = mom(LONG_TEXT, 30);             // past meeting, never sent: left alone
         Event failedShort = failedMom('called, no answer', 10);
-        insert new List<Event>{ failedOld, neverTried, failedShort };
+        insert as system new List<Event>{ failedOld, neverTried, failedShort };
 
         Test.startTest();
         DealIntelligenceJob.runBackfill();
@@ -277,9 +342,9 @@ private class DealIntelligenceJobTest {
     @isTest
     static void dealsHeldBackByRateLimitGoFirst() {
         DealIntelligenceJob.realTimeOn = false;
-        insert new List<Event>{ failedMom(LONG_TEXT, 20), failedMom(LONG_TEXT, 10) };
+        insert as system new List<Event>{ failedMom(LONG_TEXT, 20), failedMom(LONG_TEXT, 10) };
         Id retryId = retryMeeting()[0];
-        insert new Gemini_Opty_Log__c(
+        insert as system new Gemini_Opty_Log__c(
             Event_Id__c = retryId,
             Status__c = 'Fail',
             Error_Message__c = 'HTTP 429 Too Many Requests (Gemini asks to wait 14 s)'
@@ -296,7 +361,7 @@ private class DealIntelligenceJobTest {
         GeminiMock mock = new GeminiMock(429);
         Test.setMock(HttpCalloutMock.class, mock);
         DealIntelligenceJob.realTimeOn = false;
-        insert new List<Event>{ failedMom(LONG_TEXT, 20), failedMom(LONG_TEXT, 10) };
+        insert as system new List<Event>{ failedMom(LONG_TEXT, 20), failedMom(LONG_TEXT, 10) };
 
         Test.startTest();
         DealIntelligenceJob.runBackfill();

@@ -97,6 +97,38 @@ public without sharing class DealIntelligenceJob
         }
     }
 
+    /**
+     * Called from the Event trigger before update. A MOM whose notes were edited is
+     * analysed again, so its tick is cleared in the same save.
+     */
+    public static void reopenEdited(List<Event> updated, Map<Id, Event> before) {
+        for (Event e : edited(updated, before)) {
+            e.AI_Processed__c = false;
+        }
+    }
+
+    /**
+     * Called from the Event trigger after update. Only an edit to the notes counts: the
+     * job's own tick leaves Description alone, so it never queues the meeting again.
+     */
+    public static void enqueueEdited(List<Event> updated, Map<Id, Event> before) {
+        List<Event> changed = edited(updated, before);
+        if (!changed.isEmpty()) {
+            enqueueFor(changed);
+        }
+    }
+
+    private static List<Event> edited(List<Event> updated, Map<Id, Event> before) {
+        List<Event> result = new List<Event>();
+        for (Event e : updated) {
+            Event prior = before == null ? null : before.get(e.Id);
+            if (prior != null && String.isNotBlank(e.Description) && e.Description != prior.Description) {
+                result.add(e);
+            }
+        }
+        return result;
+    }
+
     public class RealTime implements Queueable, Database.AllowsCallouts {
         @TestVisible private List<Id> pending;
         /** Calls already made per meeting, for meetings that are being retried. */

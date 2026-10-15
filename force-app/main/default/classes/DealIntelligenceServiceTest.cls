@@ -105,22 +105,22 @@ private class DealIntelligenceServiceTest {
     @TestSetup
     static void makeData() {
         DealIntelligenceJob.realTimeOn = false;
-        Opportunity template = new Opportunity(
+        Opportunity template = withCreateRequirements(new Opportunity(
             StageName = firstValue(Opportunity.StageName.getDescribe()),
             Your_Win_Confidence__c = firstValue(Opportunity.Your_Win_Confidence__c.getDescribe()),
             CloseDate = Date.today().addMonths(3)
-        );
+        ));
         List<Opportunity> opps = new List<Opportunity>();
         for (String name : new List<String>{ 'AIDI Single', 'AIDI Two Meetings', 'AIDI Http Error', 'AIDI Not Json', 'AIDI Short Note', 'AIDI Busy', 'AIDI Quota' }) {
             Opportunity opp = template.clone();
             opp.Name = name;
             opps.add(opp);
         }
-        insert opps;
+        insert as system opps;
 
         // The later meeting is inserted first, so the test proves order comes from the
         // meeting date and not from the order the Ids are passed in.
-        insert new List<Event>{
+        insert as system new List<Event>{
             mom(opps[0].Id, 'MOM-ALPHA' + FILLER, -3),
             mom(opps[1].Id, 'MOM-NEWER' + FILLER, -1),
             mom(opps[1].Id, 'MOM-OLDER' + FILLER, -10),
@@ -132,7 +132,24 @@ private class DealIntelligenceServiceTest {
             mom(opps[6].Id, 'MOM-QUOTA' + FILLER, -1)
         };
         // ALPHA failed once before, so its success must clear the flag.
-        update new Event(Id = [SELECT Id FROM Event WHERE WhatId = :opps[0].Id].Id, IsFailed__c = true);
+        update as system new Event(Id = [SELECT Id FROM Event WHERE WhatId = :opps[0].Id].Id, IsFailed__c = true);
+    }
+
+    /*
+     * What Production asks of a new Opportunity on top of the required fields: an
+     * Amount, a Lead Source (any but Partners, which also wants a Prime Partner) and
+     * the CredenData screenshot note.
+     */
+    private static Opportunity withCreateRequirements(Opportunity opp) {
+        opp.Amount = 100000;
+        opp.Update_CredenData_Screen_shot__c = 'Test data';
+        for (Schema.PicklistEntry entry : Opportunity.LeadSource.getDescribe().getPicklistValues()) {
+            if (entry.isActive() && entry.getValue() != 'Partners') {
+                opp.LeadSource = entry.getValue();
+                break;
+            }
+        }
+        return opp;
     }
 
     private static String firstValue(Schema.DescribeFieldResult describe) {

@@ -245,8 +245,18 @@ public without sharing class DealIntelligenceService {
         // would otherwise each read it, merge their own meeting and save, and the second
         // save would wipe the first's competitors. Locked, the second waits and reads the
         // first's result. The callouts are already done, so the lock is held only briefly.
+        //
+        // The meetings are locked before the deal. Saving a meeting locks it and then its
+        // deal (the Slack note flow ticks the Event, and the meeting-count flow then
+        // updates the Opportunity); taking them the other way round, this job and that
+        // flow each held what the other wanted and the tick failed with UNABLE_TO_LOCK_ROW.
+        Set<Id> eventIds = new Set<Id>();
+        for (Call c : calls) {
+            eventIds.add(c.mom.Id);
+        }
         Map<Id, Opportunity> opps;
         try {
+            Database.query('SELECT Id FROM Event WHERE Id IN :eventIds FOR UPDATE', AccessLevel.SYSTEM_MODE);
             opps = new Map<Id, Opportunity>((List<Opportunity>) Database.query(
                 'SELECT Id, ' + String.join(existingFields(), ', ') + ' FROM Opportunity WHERE Id IN :oppIds FOR UPDATE',
                 AccessLevel.SYSTEM_MODE
@@ -256,7 +266,7 @@ public without sharing class DealIntelligenceService {
             for (Call c : calls) {
                 if (c.answer != null) {
                     c.busy = true;
-                    c.fail(SAVE_FAILED, 'Opportunity locked by another AI job: ' + e.getMessage());
+                    c.fail(SAVE_FAILED, 'Meeting or Opportunity locked by another process: ' + e.getMessage());
                 }
             }
             return saveErrors;
@@ -349,7 +359,8 @@ public without sharing class DealIntelligenceService {
         List<Database.SaveResult> tickResults = Database.update(ticks, false, AccessLevel.SYSTEM_MODE);
         for (Integer i = 0; i < tickResults.size(); i++) {
             if (!tickResults[i].isSuccess()) {
-                // The Opportunity is saved, but the meeting will be analysed again next run.
+                // The Opportunity is saved; the meeting is left unticked and unflagged, so
+                // only an edit to its notes sends it again.
                 ticked[i].details.add('Could not update Event tracking flags: ' + errorText(tickResults[i].getErrors()));
             }
         }
