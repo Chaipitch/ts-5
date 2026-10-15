@@ -451,7 +451,8 @@ public without sharing class LeaveSplitService {
         Map<String, Pool> pools = new Map<String, Pool>();
         for (Leave_Balance__c bal : [
             SELECT External_Key__c, Accrued_To_Date__c, Carry_Over_Days__c, Used_Days__c,
-                   Granted_On__c, Expiry_Date__c, Carry_Over_Expiry__c
+                   Granted_On__c, Expiry_Date__c, Carry_Over_Expiry__c,
+                   Leave_Year__c, Employee__r.Start_Date__c
             FROM Leave_Balance__c
             WHERE External_Key__c IN :keys
         ]) {
@@ -468,6 +469,16 @@ public without sharing class LeaveSplitService {
             pool.carryClosesOn = bal.Carry_Over_Expiry__c;
             pool.closesOn = bal.Expiry_Date__c;
             pool.opensOn = bal.Granted_On__c;
+            /*
+             * A balance with a window (Refresh Leave) opens on the anniversary, not on
+             * Granted_On__c: the monthly run grants it on the 1st, ahead of an anniversary
+             * later in the month, which let days before the anniversary through.
+             */
+            Date startDate = bal.Employee__r?.Start_Date__c;
+            if (bal.Expiry_Date__c != null && startDate != null && bal.Leave_Year__c != null) {
+                pool.opensOn = LeaveManagementController.anniversaryIn(
+                    startDate, bal.Leave_Year__c.intValue());
+            }
             pools.put(bal.External_Key__c, pool);
         }
         return pools;

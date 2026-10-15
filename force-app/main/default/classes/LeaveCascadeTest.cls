@@ -311,6 +311,35 @@ private class LeaveCascadeTest {
         System.assertEquals(0, balance(REFRESH).Used_Days__c, 'the lapsed grant is untouched');
     }
 
+    /*
+     * The window opens on the anniversary, not on Granted_On__c: the monthly run grants on
+     * the 1st, and the days between that and an anniversary later in the month are not in it.
+     */
+    @isTest
+    static void aGrantFundsNothingBeforeTheAnniversary() {
+        useTestPolicies();
+        setEntitlement(REFRESH, 10);
+        setEntitlement(ANNUAL, 20);
+        List<Date> days = workdays(4);
+        Date anniversary = days[2];
+
+        System.runAs(new User(Id = UserInfo.getUserId())) {
+            update new User(Id = employeeId(),
+                Start_Date__c = Date.newInstance(2020, anniversary.month(), anniversary.day()));
+        }
+        Leave_Balance__c refreshRow = balance(REFRESH);
+        refreshRow.Granted_On__c = days[0].addDays(-7);
+        refreshRow.Expiry_Date__c = anniversary.addMonths(1).addDays(-1);
+        update refreshRow;
+
+        ApplicationItem__c appl = raise(REFRESH, 4, 'Draft');
+        insert appl;
+
+        System.assertEquals(ANNUAL, reload(appl.Id).Request_Type__c,
+            'the request starts before the anniversary, so the grant funds none of it');
+        System.assertEquals(0, balance(REFRESH).Used_Days__c, 'the grant is untouched');
+    }
+
     /* Annual and Sick carry no expiry, and must not be constrained as though they did. */
     @isTest
     static void aBalanceWithNoExpiryIsNotWindowed() {
