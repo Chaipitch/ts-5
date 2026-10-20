@@ -20,7 +20,15 @@ public without sharing class DealIntelligenceService {
     @TestVisible private static final String MOM_PLACEHOLDER = '{{INSERT_MINUTES_OF_MEETING_HERE}}';
     @TestVisible private static final String ENDPOINT = 'callout:Gemini_AI_Studio/v1beta/models/';
     private static final String MODEL_KEY = 'GeminiMODEL';
-    private static final Integer TIMEOUT_MS = 60000;
+    /*
+     * Salesforce allows one callout 120 s, and all the callouts in a transaction 120 s
+     * together. A slow model (gemini-3.8-flash with a long prompt) can take over 60 s,
+     * so each call gets whatever is left of the 120 s, and a meeting that would start
+     * with less than MIN_CALL_MS left waits for the next job instead.
+     */
+    private static final Integer TIMEOUT_MS = 120000;
+    @TestVisible private static Integer calloutBudgetMs = 120000;
+    @TestVisible private static final Integer MIN_CALL_MS = 30000;
 
     /** Gemini is busy for a moment: worth another try in a couple of minutes. */
     @TestVisible private static final Integer BUSY = 503;
@@ -106,10 +114,18 @@ public without sharing class DealIntelligenceService {
         String model = model();
         String prompt = prompt();
         List<Call> sent = new List<Call>();
+        Long startedAt = System.currentTimeMillis();
         for (Call c : calls) {
             // Once Gemini refuses one call, the rest of this run would only be refused
             // too, and each refusal still counts against the quota. They wait instead.
             if (!summary.busy.isEmpty() || summary.rateLimited) {
+                summary.deferred.add(c.mom.Id);
+                continue;
+            }
+            // Measured by the clock, which runs at least as fast as callout time, so
+            // the transaction's 120 s is never overrun.
+            Integer budgetLeft = calloutBudgetMs - (Integer) (System.currentTimeMillis() - startedAt);
+            if (budgetLeft < MIN_CALL_MS) {
                 summary.deferred.add(c.mom.Id);
                 continue;
             }
@@ -118,7 +134,7 @@ public without sharing class DealIntelligenceService {
                     ? 'No model set in Program_Constant__mdt.' + MODEL_KEY
                     : 'Static resource ' + PROMPT_RESOURCE + ' not found');
             } else {
-                ask(c, prompt, model);
+                ask(c, prompt, model, Math.min(TIMEOUT_MS, budgetLeft));
             }
             if (c.busy) {
                 summary.busy.add(c.mom.Id);
@@ -143,12 +159,12 @@ public without sharing class DealIntelligenceService {
 
     // ---- Gemini -------------------------------------------------------------
 
-    private static void ask(Call c, String prompt, String model) {
+    private static void ask(Call c, String prompt, String model, Integer timeoutMs) {
         HttpRequest req = new HttpRequest();
         req.setEndpoint(ENDPOINT + model + ':generateContent');
         req.setMethod('POST');
         req.setHeader('Content-Type', 'application/json');
-        req.setTimeout(TIMEOUT_MS);
+        req.setTimeout(timeoutMs);
         // No temperature: Google advises leaving Gemini 3 models at their default.
         req.setBody(JSON.serialize(new Map<String, Object>{
             'contents' => new List<Object>{

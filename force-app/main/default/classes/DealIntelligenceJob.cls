@@ -30,7 +30,10 @@
 public without sharing class DealIntelligenceJob
         implements Database.Batchable<SObject>, Database.AllowsCallouts, Database.Stateful, Schedulable {
 
-    /** Meetings per transaction. A call usually takes 5–20 s; three keeps clear of 120 s. */
+    /**
+     * Meetings per transaction. A call usually takes 5–20 s, so three fit in the 120 s
+     * Salesforce allows; when calls run slow, the service hands the rest to the next job.
+     */
     @TestVisible private static final Integer PER_TRANSACTION = 3;
 
     /** Calls per meeting in all for a busy Gemini (503), the first one included. */

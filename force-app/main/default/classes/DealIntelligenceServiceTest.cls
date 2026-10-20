@@ -275,7 +275,11 @@ private class DealIntelligenceServiceTest {
 
         String prompt = req.getBody();
         System.assert(prompt.contains('MOM-ALPHA'), 'the meeting text is in the prompt');
-        System.assert(prompt.contains('0% Hallucination Policy'), 'the BA prompt is used');
+        // Whatever the BA's prompt says today: the text up to the placeholder is sent as is.
+        String resource = [SELECT Body FROM StaticResource WHERE Name = :DealIntelligenceService.PROMPT_RESOURCE WITH SYSTEM_MODE].Body.toString();
+        Map<String, Object> content = (Map<String, Object>) ((List<Object>) body.get('contents'))[0];
+        String sentText = (String) ((Map<String, Object>) ((List<Object>) content.get('parts'))[0]).get('text');
+        System.assert(sentText.startsWith(resource.substringBefore(DealIntelligenceService.MOM_PLACEHOLDER)), 'the BA prompt is used');
         System.assert(!prompt.contains(DealIntelligenceService.MOM_PLACEHOLDER), 'placeholder replaced');
         System.assert(!prompt.contains('Summary Table Output Format'), 'Section 5 is not sent');
     }
@@ -395,6 +399,25 @@ private class DealIntelligenceServiceTest {
         System.assertEquals(0, [SELECT COUNT() FROM Event WHERE What.Name = 'AIDI Busy' AND AI_Processed__c = true WITH SYSTEM_MODE]);
         System.assertEquals(2, [SELECT COUNT() FROM Event WHERE What.Name = 'AIDI Busy' AND IsFailed__c = true WITH SYSTEM_MODE],
             'the refused meeting and the held-back one are both flagged for the scheduled retry');
+    }
+
+    @isTest
+    static void meetingsWaitWhenTheCalloutTimeIsUsedUp() {
+        GeminiMock mock = new GeminiMock();
+        Test.setMock(HttpCalloutMock.class, mock);
+        List<Id> ids = eventsOf('AIDI Two Meetings');
+        // As if earlier calls had taken nearly all of the transaction's 120 s.
+        DealIntelligenceService.calloutBudgetMs = DealIntelligenceService.MIN_CALL_MS - 1;
+
+        Test.startTest();
+        DealIntelligenceService.Summary summary = DealIntelligenceService.analyse(ids);
+        Test.stopTest();
+
+        System.assertEquals(0, mock.requests.size(), 'no call is started that could be cut off');
+        System.assertEquals(2, summary.deferred.size(), 'both wait for the next job');
+        System.assertEquals(0, logsOf('AIDI Two Meetings').size(), 'and nothing is logged as failed');
+        System.assertEquals(2, [SELECT COUNT() FROM Event WHERE What.Name = 'AIDI Two Meetings' AND IsFailed__c = true WITH SYSTEM_MODE],
+            'flagged, so the scheduled retry finds them even if no job follows');
     }
 
     @isTest
