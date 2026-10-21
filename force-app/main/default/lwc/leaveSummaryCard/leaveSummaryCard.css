@@ -34,8 +34,30 @@
 }
 
 .hour-value {
-    font-size: 0.95rem; 
+    font-size: 0.95rem;
     font-weight: 500;
+}
+
+/*
+ * Carry-Over Granted label: the header and its "(From YYYY)" note share a line, and
+ * when the column is too narrow the note wraps below as a whole. A flex gap, not a
+ * space, separates them, because the LWC compiler drops whitespace between tags.
+ */
+.carry-label {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    column-gap: 0.25rem;
+}
+.carry-label > span {
+    white-space: nowrap;
+}
+.carry-from {
+    font-size: 0.65rem;
+}
+.carry-figure {
+    white-space: nowrap;
+    padding-left: 0.5rem;
 }
 
 /* 🌟 NEW: Custom padding for the Employee Column to push it exactly like your design */
