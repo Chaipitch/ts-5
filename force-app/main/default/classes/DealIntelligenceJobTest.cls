@@ -384,6 +384,29 @@ private class DealIntelligenceJobTest {
     }
 
     @isTest
+    static void rateLimitRetryRemovesItselfOnceItRuns() {
+        Test.setMock(HttpCalloutMock.class, new GeminiMock());
+
+        Test.startTest();
+        Id retry = System.schedule(DealIntelligenceJob.RATE_LIMIT_RETRY_NAME, '0 0 14 * * ?', new DealIntelligenceJob());
+        Test.stopTest();
+
+        System.assertEquals(0, [SELECT COUNT() FROM CronTrigger WHERE Id = :retry], 'a one-off: its name is free again');
+    }
+
+    @isTest
+    static void aScheduleMadeByHandKeepsRunning() {
+        Test.setMock(HttpCalloutMock.class, new GeminiMock());
+
+        Test.startTest();
+        Id byHand = System.schedule('AIDI test - every day at 2 PM', '0 0 14 * * ?', new DealIntelligenceJob());
+        Test.stopTest();
+
+        System.assertEquals(1, [SELECT COUNT() FROM CronTrigger WHERE Id = :byHand],
+            'only the rate-limit retry removes itself, not a schedule from Setup → Schedule Apex');
+    }
+
+    @isTest
     static void hourlyBackfillIsScheduledOnlyOnce() {
         // No startTest/stopTest: the scheduled job must not actually run here.
         Id first = DealIntelligenceJob.scheduleHourly();
