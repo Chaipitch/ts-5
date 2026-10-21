@@ -8,7 +8,7 @@
  *              the Event trigger. Inner, because Salesforce won't let one class be
  *              both Queueable and Batchable.
  *
- * Both hand Event Ids to DealIntelligenceService, a few at a time: each meeting is one
+ * Both hand Event Ids to DealIntelligenceService one at a time: each meeting is one
  * Gemini call, and Salesforce allows 120 seconds of callouts per transaction.
  *
  * When Gemini refuses a call, nothing more is sent in that run, and:
@@ -31,10 +31,18 @@ public without sharing class DealIntelligenceJob
         implements Database.Batchable<SObject>, Database.AllowsCallouts, Database.Stateful, Schedulable {
 
     /**
-     * Meetings per transaction. A call usually takes 5–20 s, so three fit in the 120 s
-     * Salesforce allows; when calls run slow, the service hands the rest to the next job.
+     * Meetings per transaction: one, so every Gemini call can have the whole 120 s
+     * Salesforce allows for callouts, however slow it runs.
      */
-    @TestVisible private static final Integer PER_TRANSACTION = 3;
+    @TestVisible private static final Integer PER_TRANSACTION = 1;
+
+    /**
+     * Meetings per backfill chunk. A test may run only one chunk, so there the whole
+     * backfill is one chunk; everywhere else it is PER_TRANSACTION.
+     */
+    private static Integer chunkSize() {
+        return Test.isRunningTest() ? 200 : PER_TRANSACTION;
+    }
 
     /** Calls per meeting in all for a busy Gemini (503), the first one included. */
     @TestVisible private static final Integer MAX_ATTEMPTS = 3;
@@ -78,7 +86,7 @@ public without sharing class DealIntelligenceJob
     }
 
     public static Id runBackfill() {
-        return Database.executeBatch(new DealIntelligenceJob(), PER_TRANSACTION);
+        return Database.executeBatch(new DealIntelligenceJob(), chunkSize());
     }
 
     // ---- Real-time ----------------------------------------------------------
@@ -248,7 +256,7 @@ public without sharing class DealIntelligenceJob
         if (context != null) {
             System.abortJob(context.getTriggerId()); // one-off: free the name for the next pause
         }
-        Database.executeBatch(new DealIntelligenceJob(true), PER_TRANSACTION);
+        Database.executeBatch(new DealIntelligenceJob(true), chunkSize());
     }
 
     // ---- Hourly safety net ----------------------------------------------------
@@ -277,7 +285,7 @@ public without sharing class DealIntelligenceJob
     public class Hourly implements Schedulable {
         public void execute(SchedulableContext context) {
             // Quiet like the rate-limit retry: no email, the logs hold the outcome.
-            Database.executeBatch(new DealIntelligenceJob(true), PER_TRANSACTION);
+            Database.executeBatch(new DealIntelligenceJob(true), chunkSize());
         }
     }
 
