@@ -400,9 +400,15 @@ private class DealIntelligenceJobTest {
         System.assert(minutes <= 60, 'next run within the hour: ' + minutes + ' minutes');
     }
 
+    /** Stands in for the old 02:00 job, which only needs its name here. */
+    private class DoesNothing implements Schedulable {
+        public void execute(SchedulableContext context) {}
+    }
+
     @isTest
     static void hourlyBackfillReplacesTheNightlyOne() {
-        System.schedule(DealIntelligenceJob.OLD_NIGHTLY_NAME, '0 0 2 * * ?', new DealIntelligenceJob.Hourly());
+        // Not Hourly: a test may start only one batch, and the hourly job below starts one.
+        System.schedule(DealIntelligenceJob.OLD_NIGHTLY_NAME, '0 0 2 * * ?', new DoesNothing());
 
         DealIntelligenceJob.scheduleHourly();
 
