@@ -60,6 +60,13 @@
     padding-left: 0.5rem;
 }
 
+/* Annual Leave "Used" row: more room below it once the columns narrow */
+@media (max-width: 1279.98px) {
+    .annual-used-row {
+        margin-bottom: 14px;
+    }
+}
+
 /* 🌟 NEW: Custom padding for the Employee Column to push it exactly like your design */
 /*
  * The rule under the profile block.

@@ -131,8 +131,8 @@
                                     <div class="slds-col slds-size_1-of-2 slds-p-bottom_small">Accrued to Date</div>
                                     <div class="slds-col slds-size_1-of-2 slds-text-align_right slds-p-bottom_small"><b><template if:true={isOnProbation}>0</template><template if:false={isOnProbation}>{annualLeave.accrued}</template> Days</b></div>
                                     
-                                    <div class="slds-col slds-size_1-of-2 slds-p-bottom_small">Used</div>
-                                    <div class="slds-col slds-size_1-of-2 slds-text-align_right slds-p-bottom_small"><b><template if:true={isOnProbation}>0</template><template if:false={isOnProbation}>{annualLeave.used}</template> Days</b></div>
+                                    <div class="slds-col slds-size_1-of-2 slds-p-bottom_small annual-used-row">Used</div>
+                                    <div class="slds-col slds-size_1-of-2 slds-text-align_right slds-p-bottom_small annual-used-row"><b><template if:true={isOnProbation}>0</template><template if:false={isOnProbation}>{annualLeave.used}</template> Days</b></div>
                                     
                                     <!-- The label takes all the width the figure leaves, so "(From YYYY)" fits beside the header; on a narrow column it wraps below as one piece -->
                                     <div class="slds-col slds-size_1-of-1 slds-grid slds-p-bottom_small">
