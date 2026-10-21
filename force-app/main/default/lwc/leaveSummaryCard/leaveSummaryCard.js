@@ -1,220 +1,273 @@
-import { LightningElement, api, wire, track } from 'lwc';
-import { NavigationMixin } from 'lightning/navigation'; 
+import { LightningElement, api, wire, track } from "lwc";
+import { NavigationMixin } from "lightning/navigation";
 
 // Import the Apex method to fetch leave balance overview
-import getLeaveOverview from '@salesforce/apex/TimesheetController.getLeaveOverview';
+import getLeaveOverview from "@salesforce/apex/TimesheetController.getLeaveOverview";
 
-export default class LeaveSummaryCard extends NavigationMixin(LightningElement) {
-    
-    // ==========================================
-    // INPUT PARAMETERS (Data from parent component)
-    // ==========================================
-    @api targetUserId; 
-    @api targetYear = new Date().getFullYear(); 
-    @api targetMonth = new Date().getMonth() + 1; 
+export default class LeaveSummaryCard extends NavigationMixin(
+  LightningElement
+) {
+  // ==========================================
+  // INPUT PARAMETERS (Data from parent component)
+  // ==========================================
+  @api targetUserId;
+  @api targetYear = new Date().getFullYear();
+  @api targetMonth = new Date().getMonth() + 1;
 
-    // ==========================================
-    // STATE VARIABLES (UI Binding)
-    // ==========================================
-    @track isOnProbation = false;
-    // @track annualLeave = { availableDays: 0, allocation: 0, accrued: 0, used: 0, carryOver: 0, period: '-' };
-    @track annualLeave = { availableDays: 0, allocation: 0, accrued: 0, used: 0, carryOver: '0 / 0', period: '-' };
-    @track refreshmentLeave = { availableDays: 0, allocation: 0, used: 0, nextRefresh: '-', daysUntilRefresh: 0 };
-    @track refreshmentSchedule = { hasSchedule: false };
+  // ==========================================
+  // STATE VARIABLES (UI Binding)
+  // ==========================================
+  @track isOnProbation = false;
+  // @track annualLeave = { availableDays: 0, allocation: 0, accrued: 0, used: 0, carryOver: 0, period: '-' };
+  @track annualLeave = {
+    availableDays: 0,
+    allocation: 0,
+    accrued: 0,
+    used: 0,
+    carryGranted: 0,
+    carryUsed: 0,
+    carryFromYear: new Date().getFullYear() - 1,
+    period: "-"
+  };
+  @track refreshmentLeave = {
+    availableDays: 0,
+    allocation: 0,
+    used: 0,
+    nextRefresh: "-",
+    daysUntilRefresh: 0
+  };
+  @track refreshmentSchedule = { hasSchedule: false };
 
-    // User Info variables
-    @track userAvatar = '';
-    @track userName = '';
-    @track userPath = '';
-    @track employeeNumber = '';
-    @track userDepartment = '';
-    @track userStartDate = '';
+  // User Info variables
+  @track userAvatar = "";
+  @track userName = "";
+  @track userPath = "";
+  @track employeeNumber = "";
+  @track userDepartment = "";
+  @track userStartDate = "";
 
-    // Variables for Monthly Working Hours
-    @track standardWorkStr = '00:00';
-    @track workedHoursStr = '00:00';
-    @track totalHoursStr = '00:00';
-    @track overtimeHoursStr = '00:00';
+  // Variables for Monthly Working Hours
+  @track standardWorkStr = "00:00";
+  @track workedHoursStr = "00:00";
+  @track totalHoursStr = "00:00";
+  @track overtimeHoursStr = "00:00";
 
-    @track rawEmployeeData = {}; 
-    @track selectedYear = null;
+  @track rawEmployeeData = {};
+  @track selectedYear = null;
 
-    // ==========================================
-    // WIRE METHOD: Fetch data from Apex
-    // ==========================================
-    @wire(getLeaveOverview, { employeeId: '$targetUserId', year: '$targetYear', month: '$targetMonth' })
-    wiredLeaveOverview({ error, data }) {
-        if (data) {
-            this.processBackendData(data);
-        } else if (error) {
-            console.error('--- [DEBUG] Apex Error ---', JSON.parse(JSON.stringify(error)));
-        }
+  // ==========================================
+  // WIRE METHOD: Fetch data from Apex
+  // ==========================================
+  @wire(getLeaveOverview, {
+    employeeId: "$targetUserId",
+    year: "$targetYear",
+    month: "$targetMonth"
+  })
+  wiredLeaveOverview({ error, data }) {
+    if (data) {
+      this.processBackendData(data);
+    } else if (error) {
+      console.error(
+        "--- [DEBUG] Apex Error ---",
+        JSON.parse(JSON.stringify(error))
+      );
     }
+  }
 
-    // ==========================================
-    // HELPER METHOD: Process and Map Backend Data
-    // ==========================================
-    processBackendData(backendData) {
-        
-        // Map User Info securely
-        const emp = backendData.employee;
-        if (emp) {
-            this.userAvatar = emp.photoUrl ?? '';
-            this.userName = emp.name ?? '-';
-            this.userPath = emp.userId ? '/' + emp.userId : '#';
-            this.employeeNumber = emp.employeeNumber ?? '-';
-            this.userDepartment = emp.department ?? '-';
-            
-            if (emp.startDate) {
-                const sd = new Date(emp.startDate);
-                this.userStartDate = sd.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
-            } else {
-                this.userStartDate = '-';
-            }
-        }
+  // ==========================================
+  // HELPER METHOD: Process and Map Backend Data
+  // ==========================================
+  processBackendData(backendData) {
+    // Map User Info securely
+    const emp = backendData.employee;
+    if (emp) {
+      this.userAvatar = emp.photoUrl ?? "";
+      this.userName = emp.name ?? "-";
+      this.userPath = emp.userId ? "/" + emp.userId : "#";
+      this.employeeNumber = emp.employeeNumber ?? "-";
+      this.userDepartment = emp.department ?? "-";
 
-        // Map Monthly Hours
-        this.standardWorkStr = this.formatDecimalToTime(backendData.standardWork ?? 0);
-        this.workedHoursStr = this.formatDecimalToTime(backendData.workedHours ?? 0);
-        this.totalHoursStr = this.formatDecimalToTime(backendData.totalHours ?? 0);
-        this.overtimeHoursStr = this.formatDecimalToTime(backendData.overtimeHours ?? 0);
-
-        // Extract probation and year
-        this.isOnProbation = backendData.employee?.onProbation ?? false;
-        // 🌟 Fix: Store employee data safely to avoid Navigation Error
-        this.rawEmployeeData = backendData.employee ?? { userId: this.targetUserId }; 
-        this.selectedYear = backendData.year;
-
-        const balances = backendData.balances ?? [];
-
-        // Map Annual Leave data
-        // const annualData = balances.find(item => item.leaveType === 'Annual leave');
-        const annualData = balances.find(item => item.leaveType === 'Annual leave');
-        if (annualData) {
-            // @description Extract carryRemaining and carriedIn safely, defaulting to 0 if undefined.
-            const carryRemaining = annualData.carryRemaining !== undefined ? annualData.carryRemaining : 0;
-            const carriedIn = annualData.carriedIn !== undefined ? annualData.carriedIn : 0;
-
-            this.annualLeave = {
-                availableDays: annualData.available ?? 0,
-                allocation: annualData.entitlement ?? 0,
-                accrued: annualData.accrued ?? 0,
-                used: annualData.used ?? 0,
-                // carryOver: annualData.carriedIn ?? 0,
-                carryOver: `${carryRemaining} / ${carriedIn}`,
-                period: `1 Jan ${backendData.year} - 31 Dec ${backendData.year}`
-            };
-        }
-
-        // Map Refreshment Leave data
-        const refreshData = balances.find(item => item.leaveType === 'Refresh Leave');
-        if (refreshData) {
-            let daysUntil = 0;
-            let formattedDate = '-';
-            
-            if (backendData.nextRefreshmentGrant) {
-                const refreshDate = new Date(backendData.nextRefreshmentGrant);
-                const today = new Date();
-                const diffTime = refreshDate - today;
-                
-                daysUntil = diffTime > 0 ? Math.ceil(diffTime / (1000 * 60 * 60 * 24)) : 0;
-                
-                const options = { day: 'numeric', month: 'short', year: 'numeric' };
-                formattedDate = refreshDate.toLocaleDateString('en-GB', options);
-            }
-
-            this.refreshmentLeave = {
-                availableDays: refreshData.available ?? 0,
-                allocation: refreshData.entitlement ?? 0,
-                used: refreshData.used ?? 0,
-                nextRefresh: formattedDate,
-                daysUntilRefresh: daysUntil
-            };
-        }
-
-        this.refreshmentSchedule = this.buildRefreshmentSchedule(backendData);
-    }
-
-    /**
-     * @description The Refreshment Leave dates for the footer. Either the request the daily
-     * job raised (with its status), or the first day it will be scheduled on, as an estimate.
-     * Dates are YYYY/MM/DD whatever the user's locale.
-     */
-    buildRefreshmentSchedule(backendData) {
-        const start = backendData.refreshmentStart;
-        if (!start) {
-            return { hasSchedule: false };
-        }
-        const end = backendData.refreshmentEnd;
-        const dates = end && end !== start
-            ? `${this.formatSlashed(start)} – ${this.formatSlashed(end)}`
-            : this.formatSlashed(start);
-
-        if (backendData.refreshmentEstimated) {
-            const diffTime = new Date(start) - new Date();
-            const daysUntil = diffTime > 0 ? Math.ceil(diffTime / (1000 * 60 * 60 * 24)) : 0;
-            return { hasSchedule: true, isEstimate: true, dates, daysUntil };
-        }
-
-        const status = backendData.refreshmentStatus;
-        return {
-            hasSchedule: true,
-            isEstimate: false,
-            dates,
-            status,
-            requestId: backendData.refreshmentRequestId,
-            isDraft: status === 'Draft'
-        };
-    }
-
-    /** '2026-03-16' -> '2026/03/16'. Apex Dates arrive as ISO strings, so no timezone shift. */
-    formatSlashed(isoDate) {
-        return isoDate ? isoDate.replace(/-/g, '/') : '-';
-    }
-
-    handleOpenRefreshmentRequest() {
-        this[NavigationMixin.Navigate]({
-            type: 'standard__recordPage',
-            attributes: {
-                recordId: this.refreshmentSchedule.requestId,
-                objectApiName: 'ApplicationItem__c',
-                actionName: 'view'
-            }
+      if (emp.startDate) {
+        const sd = new Date(emp.startDate);
+        this.userStartDate = sd.toLocaleDateString("en-GB", {
+          day: "numeric",
+          month: "short",
+          year: "numeric"
         });
+      } else {
+        this.userStartDate = "-";
+      }
     }
 
-    /**
-     * HELPER METHOD: Converts decimal hours to HH:MM format
-     * Example: 7.5 -> '07:30'
-     */
-    formatDecimalToTime(decimalHours) {
-        if (!decimalHours || isNaN(decimalHours)) return '00:00';
-        
-        const hours = Math.floor(decimalHours);
-        const minutes = Math.round((decimalHours - hours) * 60);
-        
-        const paddedHours = String(hours).padStart(2, '0');
-        const paddedMinutes = String(minutes).padStart(2, '0');
-        
-        return `${paddedHours}:${paddedMinutes}`;
+    // Map Monthly Hours
+    this.standardWorkStr = this.formatDecimalToTime(
+      backendData.standardWork ?? 0
+    );
+    this.workedHoursStr = this.formatDecimalToTime(
+      backendData.workedHours ?? 0
+    );
+    this.totalHoursStr = this.formatDecimalToTime(backendData.totalHours ?? 0);
+    this.overtimeHoursStr = this.formatDecimalToTime(
+      backendData.overtimeHours ?? 0
+    );
+
+    // Extract probation and year
+    this.isOnProbation = backendData.employee?.onProbation ?? false;
+    // 🌟 Fix: Store employee data safely to avoid Navigation Error
+    this.rawEmployeeData = backendData.employee ?? {
+      userId: this.targetUserId
+    };
+    this.selectedYear = backendData.year;
+
+    const balances = backendData.balances ?? [];
+
+    // Map Annual Leave data
+    // const annualData = balances.find(item => item.leaveType === 'Annual leave');
+    const annualData = balances.find(
+      (item) => item.leaveType === "Annual leave"
+    );
+    if (annualData) {
+      // @description Extract carryRemaining and carriedIn safely, defaulting to 0 if undefined.
+      const carryRemaining =
+        annualData.carryRemaining !== undefined ? annualData.carryRemaining : 0;
+      const carriedIn =
+        annualData.carriedIn !== undefined ? annualData.carriedIn : 0;
+      // Carry-over spent so far: what came in less what is still left to spend.
+      const carryUsed = Math.max(carriedIn - carryRemaining, 0);
+
+      this.annualLeave = {
+        availableDays: annualData.available ?? 0,
+        allocation: annualData.entitlement ?? 0,
+        accrued: annualData.accrued ?? 0,
+        used: annualData.used ?? 0,
+        // carryOver: annualData.carriedIn ?? 0,
+        carryGranted: carriedIn,
+        carryUsed: carryUsed,
+        carryFromYear: backendData.year - 1,
+        period: `1 Jan ${backendData.year} - 31 Dec ${backendData.year}`
+      };
     }
 
-    // ==========================================
-    // NAVIGATION METHODS
-    // ==========================================
-    handleViewAnnualDetails() {
-        this[NavigationMixin.Navigate]({
-            type: 'standard__navItemPage',
-            attributes: { apiName: 'Leave_Balance' },
-            state: { c__userId: this.rawEmployeeData.userId, c__year: this.selectedYear }
-        });
+    // Map Refreshment Leave data
+    const refreshData = balances.find(
+      (item) => item.leaveType === "Refresh Leave"
+    );
+    if (refreshData) {
+      let daysUntil = 0;
+      let formattedDate = "-";
+
+      if (backendData.nextRefreshmentGrant) {
+        const refreshDate = new Date(backendData.nextRefreshmentGrant);
+        const today = new Date();
+        const diffTime = refreshDate - today;
+
+        daysUntil =
+          diffTime > 0 ? Math.ceil(diffTime / (1000 * 60 * 60 * 24)) : 0;
+
+        const options = { day: "numeric", month: "short", year: "numeric" };
+        formattedDate = refreshDate.toLocaleDateString("en-GB", options);
+      }
+
+      this.refreshmentLeave = {
+        availableDays: refreshData.available ?? 0,
+        allocation: refreshData.entitlement ?? 0,
+        used: refreshData.used ?? 0,
+        nextRefresh: formattedDate,
+        daysUntilRefresh: daysUntil
+      };
     }
 
-    handleViewRefreshmentDetails() {
-        this[NavigationMixin.Navigate]({
-            type: 'standard__navItemPage',
-            attributes: { apiName: 'Leave_Balance' },
-            state: { c__userId: this.rawEmployeeData.userId, c__year: this.selectedYear }
-        });
+    this.refreshmentSchedule = this.buildRefreshmentSchedule(backendData);
+  }
+
+  /**
+   * @description The Refreshment Leave dates for the footer. Either the request the daily
+   * job raised (with its status), or the first day it will be scheduled on, as an estimate.
+   * Dates are YYYY/MM/DD whatever the user's locale.
+   */
+  buildRefreshmentSchedule(backendData) {
+    const start = backendData.refreshmentStart;
+    if (!start) {
+      return { hasSchedule: false };
     }
+    const end = backendData.refreshmentEnd;
+    const dates =
+      end && end !== start
+        ? `${this.formatSlashed(start)} – ${this.formatSlashed(end)}`
+        : this.formatSlashed(start);
+
+    if (backendData.refreshmentEstimated) {
+      const diffTime = new Date(start) - new Date();
+      const daysUntil =
+        diffTime > 0 ? Math.ceil(diffTime / (1000 * 60 * 60 * 24)) : 0;
+      return { hasSchedule: true, isEstimate: true, dates, daysUntil };
+    }
+
+    const status = backendData.refreshmentStatus;
+    return {
+      hasSchedule: true,
+      isEstimate: false,
+      dates,
+      status,
+      requestId: backendData.refreshmentRequestId,
+      isDraft: status === "Draft"
+    };
+  }
+
+  /** '2026-03-16' -> '2026/03/16'. Apex Dates arrive as ISO strings, so no timezone shift. */
+  formatSlashed(isoDate) {
+    return isoDate ? isoDate.replace(/-/g, "/") : "-";
+  }
+
+  handleOpenRefreshmentRequest() {
+    this[NavigationMixin.Navigate]({
+      type: "standard__recordPage",
+      attributes: {
+        recordId: this.refreshmentSchedule.requestId,
+        objectApiName: "ApplicationItem__c",
+        actionName: "view"
+      }
+    });
+  }
+
+  /**
+   * HELPER METHOD: Converts decimal hours to HH:MM format
+   * Example: 7.5 -> '07:30'
+   */
+  formatDecimalToTime(decimalHours) {
+    if (!decimalHours || isNaN(decimalHours)) return "00:00";
+
+    const hours = Math.floor(decimalHours);
+    const minutes = Math.round((decimalHours - hours) * 60);
+
+    const paddedHours = String(hours).padStart(2, "0");
+    const paddedMinutes = String(minutes).padStart(2, "0");
+
+    return `${paddedHours}:${paddedMinutes}`;
+  }
+
+  // ==========================================
+  // NAVIGATION METHODS
+  // ==========================================
+  handleViewAnnualDetails() {
+    this[NavigationMixin.Navigate]({
+      type: "standard__navItemPage",
+      attributes: { apiName: "Leave_Balance" },
+      state: {
+        c__userId: this.rawEmployeeData.userId,
+        c__year: this.selectedYear
+      }
+    });
+  }
+
+  handleViewRefreshmentDetails() {
+    this[NavigationMixin.Navigate]({
+      type: "standard__navItemPage",
+      attributes: { apiName: "Leave_Balance" },
+      state: {
+        c__userId: this.rawEmployeeData.userId,
+        c__year: this.selectedYear
+      }
+    });
+  }
 }
