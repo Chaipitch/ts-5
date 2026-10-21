@@ -22,10 +22,10 @@
  *                            limit first, then every other failed meeting, and
  *                            pauses again if Gemini is still refusing.
  *
- * Nightly safety net (inner class Nightly, Schedulable): the backfill every night at
- * 02:00, switched on once with DealIntelligenceJob.scheduleNightly(). It only sends
+ * Hourly safety net (inner class Hourly, Schedulable): the backfill at the top of every
+ * hour, switched on once with DealIntelligenceJob.scheduleHourly(). It only sends
  * meetings still waiting — ones that failed for a reason that isn't retried, or ran
- * out of busy retries — so most nights it makes no Gemini calls at all.
+ * out of busy retries — so most hours it makes no Gemini calls at all.
  */
 public without sharing class DealIntelligenceJob
         implements Database.Batchable<SObject>, Database.AllowsCallouts, Database.Stateful, Schedulable {
@@ -47,9 +47,11 @@ public without sharing class DealIntelligenceJob
     @TestVisible private static final Integer SHORT_WAIT_MAX_SECONDS = 600;
     @TestVisible private static final String RATE_LIMIT_RETRY_NAME = 'AI Deal Intelligence - retry after Gemini rate limit';
 
-    @TestVisible private static final String NIGHTLY_NAME = 'AI Deal Intelligence - nightly backfill';
-    /** 02:00 every day, in the time zone of the user who switches it on. */
-    @TestVisible private static final String NIGHTLY_CRON = '0 0 2 * * ?';
+    @TestVisible private static final String HOURLY_NAME = 'AI Deal Intelligence - hourly backfill';
+    /** The top of every hour. */
+    @TestVisible private static final String HOURLY_CRON = '0 0 * * * ?';
+    /** The 02:00 run this replaced; switching the hourly one on removes it. */
+    @TestVisible private static final String OLD_NIGHTLY_NAME = 'AI Deal Intelligence - nightly backfill';
 
     /** Off in test setup, so inserting test meetings doesn't start real-time jobs. */
     @TestVisible private static Boolean realTimeOn = true;
@@ -249,21 +251,32 @@ public without sharing class DealIntelligenceJob
         Database.executeBatch(new DealIntelligenceJob(true), PER_TRANSACTION);
     }
 
-    // ---- Nightly safety net ---------------------------------------------------
+    // ---- Hourly safety net ----------------------------------------------------
 
-    /** Switches the nightly backfill on (once is enough; a second call changes nothing). */
-    public static Id scheduleNightly() {
+    /**
+     * Switches the hourly backfill on (once is enough; a second call changes nothing),
+     * and the old 02:00 run off, so the two don't both run at 02:00.
+     */
+    public static Id scheduleHourly() {
+        Id existing;
+        List<String> names = new List<String>{ HOURLY_NAME, OLD_NIGHTLY_NAME };
         for (CronTrigger t : [
-            SELECT Id FROM CronTrigger WHERE CronJobDetail.Name = :NIGHTLY_NAME WITH SYSTEM_MODE
+            SELECT Id, CronJobDetail.Name FROM CronTrigger
+            WHERE CronJobDetail.Name IN :names
+            WITH SYSTEM_MODE
         ]) {
-            return t.Id;
+            if (t.CronJobDetail.Name == HOURLY_NAME) {
+                existing = t.Id;
+            } else {
+                System.abortJob(t.Id);
+            }
         }
-        return System.schedule(NIGHTLY_NAME, NIGHTLY_CRON, new Nightly());
+        return existing != null ? existing : System.schedule(HOURLY_NAME, HOURLY_CRON, new Hourly());
     }
 
-    public class Nightly implements Schedulable {
+    public class Hourly implements Schedulable {
         public void execute(SchedulableContext context) {
-            // Quiet like the hourly retry: no email, the logs hold the outcome.
+            // Quiet like the rate-limit retry: no email, the logs hold the outcome.
             Database.executeBatch(new DealIntelligenceJob(true), PER_TRANSACTION);
         }
     }

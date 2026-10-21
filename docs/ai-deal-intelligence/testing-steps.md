@@ -107,7 +107,7 @@ The batch only takes meetings with `IsFailed__c = true`. To test it, make a call
 - [ ] 7.2 **503 (busy):** when it happens, the log says `HTTP 503`; about 2 minutes later a new `DealIntelligenceJob` appears in Apex Jobs and the meeting is analysed; after 3 calls in all it stops (next backfill picks it up).
 - [ ] 7.3 **429 (rate limit):** the log says `HTTP 429`; no more calls in that run; **Setup → Scheduled Jobs** shows one *AI Deal Intelligence - retry after Gemini rate limit* (never two): about 2 minutes ahead for a per-minute limit (the log says "Gemini asks to wait N s" with a short N), about an hour ahead for a used-up daily quota. When it runs, the held-back deals are analysed first, then the rest; if Gemini still refuses, a new one is scheduled the same way.
 - [ ] 7.4 A deal failing a validation rule doesn't stop other deals in the same chunk.
-- [ ] 7.4a Nightly: run `DealIntelligenceJob.scheduleNightly();` twice → Setup → Scheduled Jobs shows one *AI Deal Intelligence - nightly backfill*, next run 02:00. Leave a meeting waiting (e.g. reset one) → next morning it is analysed.
+- [ ] 7.4a Hourly: run `DealIntelligenceJob.scheduleHourly();` twice → Setup → Scheduled Jobs shows one *AI Deal Intelligence - hourly backfill*, next run at the top of the hour, and no *nightly backfill*. Leave a meeting waiting (e.g. reset one) → after the next full hour it is analysed.
 - [ ] 7.5 `grep -rn "AQ\.\|AIza" force-app` finds **no** API key in tracked source (`GeminiCalloutService.cls` is untracked and still has one — see implementation-plan §0).
 
 ## 8. Demo readiness

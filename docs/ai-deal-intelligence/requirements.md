@@ -91,7 +91,7 @@ Numbering follows the Gemini prompt (1–33). The sheet's *Obj&Fields* tab numbe
 
 ### 3.1 Processing patterns
 
-- **FR-1 Retry run (was: backfill, D16).** Past meetings are **not** processed in Production. The batch (`runBackfill()`, the rate-limit retry and the nightly run) takes only meetings flagged **`IsFailed__c = true`**, of any meeting date: send each to Gemini, merge, tick `AI_Processed__c`, clear `IsFailed__c`. A failed call, a deal that won't save, or a meeting held back after a refusal sets `IsFailed__c = true`.
+- **FR-1 Retry run (was: backfill, D16).** Past meetings are **not** processed in Production. The batch (`runBackfill()`, the rate-limit retry and the hourly run) takes only meetings flagged **`IsFailed__c = true`**, of any meeting date: send each to Gemini, merge, tick `AI_Processed__c`, clear `IsFailed__c`. A failed call, a deal that won't save, or a meeting held back after a refusal sets `IsFailed__c = true`.
 - **FR-2 Real-time (Task 2).** When a MOM is **created**, do the same steps asynchronously. (Edits to an existing MOM do not trigger analysis.)
 - **FR-2a Process exactly once (sheet Rule D, added later).** A MOM is analysed only once; editing it afterwards never re-runs the analysis or updates the Opportunity again. Met by the after-insert trigger plus `AI_Processed__c`. A MOM that was never analysed successfully (failed, or saved too short and lengthened later) can still get its first analysis from the backfill.
 
@@ -150,7 +150,7 @@ What this means in practice:
 - **FR-24** No API key or credentials in Apex or in git.
 - **FR-25** When Gemini refuses a call, nothing more is sent in that run. **503 (busy):** try the meeting again 2 minutes later, up to 3 calls in all. **429 (rate limit / quota):** pause everything; one scheduled retry runs the backfill with the deals that were held back first (whole deals, oldest meeting first), then the rest still pending, and pauses again if Gemini still refuses (D12). The wait follows Gemini's RetryInfo: ≤ 10 minutes asked (per-minute limit) → 2 minutes, or a minute more than asked; more, or not said (daily quota) → 1 hour (D13).
 - **FR-26** Two jobs working on the same deal at once must not lose each other's changes (the deal is locked while merging).
-- **FR-27** Nightly safety net: a backfill at 02:00 picks up whatever is still waiting (failures that are not retried automatically). Built; switched on by hand (`DealIntelligenceJob.scheduleNightly()`).
+- **FR-27** Hourly safety net: a backfill at the top of every hour picks up whatever is still waiting (failures that are not retried automatically). Built; switched on by hand (`DealIntelligenceJob.scheduleHourly()`).
 
 ## 4. Non-functional
 

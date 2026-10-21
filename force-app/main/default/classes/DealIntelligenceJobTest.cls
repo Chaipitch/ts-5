@@ -384,26 +384,39 @@ private class DealIntelligenceJobTest {
     }
 
     @isTest
-    static void nightlyBackfillIsScheduledOnlyOnce() {
+    static void hourlyBackfillIsScheduledOnlyOnce() {
         // No startTest/stopTest: the scheduled job must not actually run here.
-        Id first = DealIntelligenceJob.scheduleNightly();
-        Id second = DealIntelligenceJob.scheduleNightly();
+        Id first = DealIntelligenceJob.scheduleHourly();
+        Id second = DealIntelligenceJob.scheduleHourly();
 
         System.assertEquals(first, second, 'switching it on twice changes nothing');
-        CronTrigger nightly = [
+        CronTrigger hourly = [
             SELECT CronExpression, NextFireTime FROM CronTrigger
-            WHERE CronJobDetail.Name = :DealIntelligenceJob.NIGHTLY_NAME
+            WHERE CronJobDetail.Name = :DealIntelligenceJob.HOURLY_NAME
         ];
-        System.assertEquals(DealIntelligenceJob.NIGHTLY_CRON, nightly.CronExpression);
-        System.assertEquals(2, nightly.NextFireTime.hour(), 'runs at 02:00');
+        System.assertEquals(DealIntelligenceJob.HOURLY_CRON, hourly.CronExpression);
+        System.assertEquals(0, hourly.NextFireTime.minute(), 'runs at the top of the hour');
+        Long minutes = (hourly.NextFireTime.getTime() - Datetime.now().getTime()) / 60000;
+        System.assert(minutes <= 60, 'next run within the hour: ' + minutes + ' minutes');
     }
 
     @isTest
-    static void nightlyBackfillPicksUpWhatIsWaiting() {
+    static void hourlyBackfillReplacesTheNightlyOne() {
+        System.schedule(DealIntelligenceJob.OLD_NIGHTLY_NAME, '0 0 2 * * ?', new DealIntelligenceJob.Hourly());
+
+        DealIntelligenceJob.scheduleHourly();
+
+        System.assertEquals(0, [SELECT COUNT() FROM CronTrigger WHERE CronJobDetail.Name = :DealIntelligenceJob.OLD_NIGHTLY_NAME],
+            'the 02:00 run is switched off');
+        System.assertEquals(1, [SELECT COUNT() FROM CronTrigger WHERE CronJobDetail.Name = :DealIntelligenceJob.HOURLY_NAME]);
+    }
+
+    @isTest
+    static void hourlyBackfillPicksUpWhatIsWaiting() {
         Test.setMock(HttpCalloutMock.class, new GeminiMock());
 
         Test.startTest();
-        new DealIntelligenceJob.Nightly().execute(null);
+        new DealIntelligenceJob.Hourly().execute(null);
         Test.stopTest();
 
         System.assertEquals(true, [SELECT AI_Processed__c FROM Event WHERE Id = :retryMeeting()[0] WITH SYSTEM_MODE].AI_Processed__c);

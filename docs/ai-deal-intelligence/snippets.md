@@ -79,16 +79,16 @@ Opportunity o = [SELECT Customer_Seriousness_Score__c, Mentioned_Product_Competi
 System.debug('DEAL ' + JSON.serializePretty(o));
 ```
 
-### Nightly safety net — switch on / check / switch off
+### Hourly safety net — switch on / check / switch off
 
 ```apex
-System.debug('NIGHTLY ' + DealIntelligenceJob.scheduleNightly());   // on (once is enough)
+System.debug('HOURLY ' + DealIntelligenceJob.scheduleHourly());   // on (once is enough; also removes the old 02:00 run)
 ```
 
 ```apex
 for (CronTrigger t : [SELECT Id, CronJobDetail.Name, NextFireTime FROM CronTrigger WHERE CronJobDetail.Name LIKE 'AI Deal Intelligence%']) {
     System.debug('SCHEDULED ' + t.CronJobDetail.Name + ' | next ' + t.NextFireTime);
-    // System.abortJob(t.Id);   // uncomment to switch off (needed before deploying DealIntelligenceJob)
+    // System.abortJob(t.Id);   // uncomment to switch off (needed before deploying DealIntelligenceJob; run scheduleHourly() again after)
 }
 ```
 
