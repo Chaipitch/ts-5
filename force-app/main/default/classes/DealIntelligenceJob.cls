@@ -254,18 +254,10 @@ public without sharing class DealIntelligenceJob
     /**
      * The rate-limit retry: a backfill that puts the deals that hit the limit first. Also
      * what runs when this class is scheduled by hand (Setup → Schedule Apex lists only
-     * this one, not Hourly); such a schedule keeps running.
+     * this one, not Hourly). It never removes its own schedule: a finished retry that
+     * still holds its name is cleared by the next scheduleRateLimitRetry.
      */
     public void execute(SchedulableContext context) {
-        if (context != null) {
-            for (CronTrigger t : [
-                SELECT Id FROM CronTrigger
-                WHERE Id = :context.getTriggerId() AND CronJobDetail.Name = :RATE_LIMIT_RETRY_NAME
-                WITH SYSTEM_MODE
-            ]) {
-                System.abortJob(t.Id); // one-off: free the name for the next pause
-            }
-        }
         Database.executeBatch(new DealIntelligenceJob(true), chunkSize());
     }
 
